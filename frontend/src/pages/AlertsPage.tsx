@@ -2,13 +2,10 @@ import React, { useState, useEffect } from 'react';
 import {
   ShieldAlert,
   Search,
-  CheckCircle2,
-  AlertTriangle,
-  Clock,
   ShieldCheck,
-  ChevronRight,
-  Filter,
-  Eye
+  Eye,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { FraudAlert, AlertListResponse } from '../types';
 import { api } from '../services/api';
@@ -20,46 +17,83 @@ interface AlertsPageProps {
   refreshTrigger: number;
 }
 
+const DEFAULT_PAGE_SIZE = 10;
+
 export const AlertsPage: React.FC<AlertsPageProps> = ({
   onSelectAlert,
   refreshTrigger
 }) => {
   const [data, setData] = useState<AlertListResponse | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [page, setPage] = useState<number>(1);
+  const [pageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [severityFilter, setSeverityFilter] = useState<string>('ALL');
   const [search, setSearch] = useState<string>('');
 
-  const fetchAlerts = async () => {
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadAlerts = async () => {
+      try {
+        const res = await api.getAlerts({
+          status: statusFilter,
+          severity: severityFilter,
+          limit: pageSize,
+          page
+        });
+        if (!cancelled) {
+          setData(res);
+        }
+      } catch (err) {
+        console.error('Failed to load alerts:', err);
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void loadAlerts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [page, pageSize, statusFilter, severityFilter, refreshTrigger]);
+
+  const handleStatusChange = (nextStatus: string) => {
     setIsLoading(true);
-    try {
-      const res = await api.getAlerts({
-        status: statusFilter,
-        severity: severityFilter,
-        limit: 100
-      });
-      setData(res);
-    } catch (err) {
-      console.error('Failed to load alerts:', err);
-    } finally {
-      setIsLoading(false);
-    }
+    setStatusFilter(nextStatus);
+    setPage(1);
   };
 
-  useEffect(() => {
-    fetchAlerts();
-  }, [statusFilter, severityFilter, refreshTrigger]);
+  const handleSeverityChange = (nextSeverity: string) => {
+    setIsLoading(true);
+    setSeverityFilter(nextSeverity);
+    setPage(1);
+  };
 
-  const filteredAlerts = data?.alerts.filter((alert) => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return (
-      alert.id.toLowerCase().includes(q) ||
-      alert.transaction_id.toLowerCase().includes(q) ||
-      alert.reason.toLowerCase().includes(q) ||
-      (alert.reviewed_by && alert.reviewed_by.toLowerCase().includes(q))
-    );
-  }) || [];
+  const handlePageChange = (nextPage: number) => {
+    setIsLoading(true);
+    setPage(nextPage);
+  };
+
+  const filteredAlerts =
+    data?.alerts.filter((alert) => {
+      if (!search) return true;
+      const q = search.toLowerCase();
+      return (
+        alert.id.toLowerCase().includes(q) ||
+        alert.transaction_id.toLowerCase().includes(q) ||
+        alert.reason.toLowerCase().includes(q) ||
+        (alert.reviewed_by && alert.reviewed_by.toLowerCase().includes(q))
+      );
+    }) || [];
+
+  const currentPage = data?.page ?? page;
+  const currentPageSize = data?.page_size ?? pageSize;
+  const totalPages = data?.total_pages ?? 1;
+  const totalAlerts = data?.total ?? 0;
 
   return (
     <div className="space-y-4">
@@ -82,7 +116,7 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({
           {['ALL', 'NEW', 'IN_REVIEW', 'RESOLVED'].map((st) => (
             <button
               key={st}
-              onClick={() => setStatusFilter(st)}
+              onClick={() => handleStatusChange(st)}
               className={`px-3 py-1 rounded text-xs font-mono uppercase transition-all ${
                 statusFilter === st
                   ? 'bg-blue-600 text-white font-medium shadow-sm'
@@ -109,10 +143,13 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-mono uppercase text-slate-400">Severity:</span>
+          <label htmlFor="severity-filter" className="text-[11px] font-mono uppercase text-slate-400">
+            Severity:
+          </label>
           <select
+            id="severity-filter"
             value={severityFilter}
-            onChange={(e) => setSeverityFilter(e.target.value)}
+            onChange={(e) => handleSeverityChange(e.target.value)}
             className="bg-[#0B0F19] border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-slate-200 focus:outline-none cursor-pointer"
           >
             <option value="ALL">All Severities</option>
@@ -192,7 +229,10 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({
                     <RiskBadge score={alert.risk_score} size="md" />
                   </div>
 
-                  <button className="px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 text-xs font-medium transition-all flex items-center gap-1">
+                  <button
+                    type="button"
+                    className="px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 text-xs font-medium transition-all flex items-center gap-1"
+                  >
                     <Eye className="w-3.5 h-3.5" />
                     <span>Review</span>
                   </button>
@@ -208,6 +248,49 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({
           ))
         )}
       </div>
+
+      {/* Pagination Footer */}
+      {data && totalPages > 0 && (
+        <div className="px-4 py-3 rounded-xl bg-[#0B0F19]/80 border border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+          <div>
+            Showing{' '}
+            <span className="text-white font-mono">
+              {totalAlerts === 0 ? 0 : (currentPage - 1) * currentPageSize + 1}
+            </span>{' '}
+            to{' '}
+            <span className="text-white font-mono">
+              {Math.min(currentPage * currentPageSize, totalAlerts)}
+            </span>{' '}
+            of <span className="text-white font-mono">{totalAlerts}</span> records
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              aria-label="Previous alerts page"
+              disabled={currentPage <= 1}
+              onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+              className="p-1.5 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 text-slate-300 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+
+            <span className="font-mono text-slate-300 px-2">
+              Page {currentPage} of {totalPages}
+            </span>
+
+            <button
+              type="button"
+              aria-label="Next alerts page"
+              disabled={currentPage >= totalPages}
+              onClick={() => handlePageChange(currentPage + 1)}
+              className="p-1.5 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 text-slate-300 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

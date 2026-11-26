@@ -7,8 +7,7 @@ import {
   Cpu,
   Settings,
   Shield,
-  Activity,
-  ExternalLink
+  Activity
 } from 'lucide-react';
 
 export type NavigationTab = 

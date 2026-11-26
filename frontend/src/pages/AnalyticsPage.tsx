@@ -6,8 +6,6 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  LineChart,
-  Line,
   CartesianGrid,
   Legend,
   AreaChart,
@@ -17,11 +15,13 @@ import {
   TrendingUp,
   BarChart3,
   PieChart as PieIcon,
-  DollarSign,
   ShieldAlert,
   Percent,
   CheckCircle,
-  Activity
+  Activity,
+  Clock,
+  Flag,
+  ShieldBan
 } from 'lucide-react';
 import { AnalyticsSummary } from '../types';
 import { MetricCard } from '../components/common/MetricCard';
@@ -29,6 +29,11 @@ import { MetricCard } from '../components/common/MetricCard';
 interface AnalyticsPageProps {
   analytics: AnalyticsSummary | null;
   isLoading: boolean;
+}
+
+function fallbackRate(count: number, total: number): number {
+  if (total <= 0) return 0;
+  return Number(((count / total) * 100).toFixed(2));
 }
 
 export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ analytics, isLoading }) => {
@@ -45,52 +50,84 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ analytics, isLoadi
 
   const { stats, trends, type_distribution } = analytics;
 
-  // Legit vs Fraud counts
-  const legitimateCount = stats.total_transactions - stats.fraud_detected;
-  const legitimateVolume = stats.total_volume - (trends.reduce((acc, t) => acc + t.fraud_volume, 0));
+  const approvedCount = stats.approved_count ?? 0;
+  const underReviewCount = stats.under_review_count ?? 0;
+  const flaggedCount = stats.flagged_count ?? 0;
+  const blockedCount = stats.blocked_count ?? 0;
+
+  const approvedRate = stats.approved_rate ?? fallbackRate(approvedCount, stats.total_transactions);
+  const underReviewRate =
+    stats.under_review_rate ?? fallbackRate(underReviewCount, stats.total_transactions);
+  const flaggedRate = stats.flagged_rate ?? fallbackRate(flaggedCount, stats.total_transactions);
+  const blockedRate = stats.blocked_rate ?? fallbackRate(blockedCount, stats.total_transactions);
 
   return (
     <div className="space-y-6">
-      {/* Analytics KPI Ribbon */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* Distinct Transaction Outcome Categories (APPROVED vs UNDER_REVIEW vs FLAGGED vs BLOCKED) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
-          title="Legitimate Transactions"
-          value={legitimateCount.toLocaleString()}
-          subtitle={`${((legitimateCount / (stats.total_transactions || 1)) * 100).toFixed(1)}% of all traffic`}
+          title="Approved (Legitimate)"
+          value={approvedCount.toLocaleString()}
+          subtitle={`${approvedRate}% of all traffic`}
           icon={CheckCircle}
-          trend={{ value: "Healthy", isPositive: true }}
+          trend={{ value: `${approvedRate}%`, isPositive: true }}
         />
         <MetricCard
-          title="Flagged / Blocked"
+          title="Under Review"
+          value={underReviewCount.toLocaleString()}
+          subtitle={`${underReviewRate}% awaiting human review`}
+          icon={Clock}
+          trend={{ value: `${underReviewRate}%`, isWarning: underReviewCount > 0 }}
+        />
+        <MetricCard
+          title="Flagged"
+          value={flaggedCount.toLocaleString()}
+          subtitle={`${flaggedRate}% suspicious triggers`}
+          icon={Flag}
+          trend={{ value: `${flaggedRate}%`, isWarning: flaggedCount > 0 }}
+        />
+        <MetricCard
+          title="Blocked"
+          value={blockedCount.toLocaleString()}
+          subtitle={`${blockedRate}% high-risk blocked`}
+          icon={ShieldBan}
+          trend={{ value: `${blockedRate}%`, isWarning: blockedCount > 0 }}
+          highlight={blockedCount > 0}
+        />
+      </div>
+
+      {/* Operational KPI Strip */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <MetricCard
+          title="Total Fraud Triggers"
           value={stats.fraud_detected.toLocaleString()}
-          subtitle="Confirmed risk triggers"
+          subtitle="Flagged + Blocked (excludes Under Review)"
           icon={ShieldAlert}
           trend={{ value: `${stats.fraud_detection_rate}% rate`, isWarning: stats.fraud_detected > 0 }}
-          highlight={stats.fraud_detected > 0}
         />
         <MetricCard
           title="Resolved Alerts"
           value={stats.resolved_alerts.toLocaleString()}
           subtitle="Cleared by SecOps team"
           icon={Percent}
-          trend={{ value: "Operational", isPositive: true }}
+          trend={{ value: 'Operational', isPositive: true }}
         />
         <MetricCard
           title="Mean Risk Index"
           value={`${stats.average_risk_score} / 100`}
           subtitle="Aggregate portfolio risk"
           icon={Activity}
-          trend={{ value: "Normal range", isPositive: true }}
+          trend={{ value: 'Portfolio Score', isPositive: stats.average_risk_score < 50 }}
         />
       </div>
 
-      {/* Chart 1: Fraud vs Legitimate Transaction Volume Over Time */}
+      {/* Chart 1: Transaction Volume Over Time */}
       <div className="p-5 rounded-xl bg-[#0E1524]/90 border border-slate-800/80 shadow-md">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-sm font-semibold text-white tracking-tight flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-blue-400" />
-              Volume Comparison: Legitimate vs Fraudulent ($ USD)
+              Volume Comparison: Total vs Fraudulent ($ USD)
             </h3>
             <p className="text-xs text-slate-400">Daily financial throughput timeline</p>
           </div>
@@ -115,7 +152,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ analytics, isLoadi
                   fontSize: '12px',
                   color: '#F8FAFC'
                 }}
-                formatter={(val: any) => [`$${Number(val).toLocaleString()}`, '']}
+                formatter={(val: unknown) => [`$${Number(val).toLocaleString()}`, '']}
               />
               <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
               <Area
@@ -150,7 +187,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ analytics, isLoadi
               <BarChart3 className="w-4 h-4 text-cyan-400" />
               Transaction Velocity & Incident Count
             </h3>
-            <p className="text-xs text-slate-400">Total processed vs confirmed fraud hits</p>
+            <p className="text-xs text-slate-400">Total processed vs under review & confirmed fraud hits</p>
           </div>
 
           <div className="h-64 w-full">
@@ -170,6 +207,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ analytics, isLoadi
                 />
                 <Legend wrapperStyle={{ fontSize: '12px' }} />
                 <Bar dataKey="total_count" name="Total Count" fill="#1E293B" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="under_review_count" name="Under Review" fill="#F59E0B" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="fraud_count" name="Fraud Count" fill="#F43F5E" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -193,6 +231,7 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ analytics, isLoadi
                   <th className="pb-2">Channel</th>
                   <th className="pb-2">Volume</th>
                   <th className="pb-2 text-center">Tx Count</th>
+                  <th className="pb-2 text-center">Under Review</th>
                   <th className="pb-2 text-center">Fraud Count</th>
                   <th className="pb-2 text-right">Risk %</th>
                 </tr>
@@ -209,6 +248,9 @@ export const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ analytics, isLoadi
                         ${item.volume.toLocaleString('en-US', { minimumFractionDigits: 0 })}
                       </td>
                       <td className="py-2.5 text-center text-slate-300">{item.count}</td>
+                      <td className="py-2.5 text-center text-amber-400 font-semibold">
+                        {item.under_review_count ?? 0}
+                      </td>
                       <td className="py-2.5 text-center text-rose-400 font-semibold">{item.fraud_count}</td>
                       <td className="py-2.5 text-right">
                         <span

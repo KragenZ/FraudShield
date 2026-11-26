@@ -28,8 +28,12 @@ FraudShield AI ingests high-velocity financial transactions, executes risk heuri
 
 ### Backend
 - **Framework**: Python 3.11 + FastAPI + Uvicorn
-- **ORM & Database**: SQLAlchemy 2.0 with PostgreSQL integration & SQLite sandbox fallback
+- **ORM & Database**: SQLAlchemy 2.0 + Alembic migrations with PostgreSQL (`psycopg2-binary` driver included in `requirements.txt`) & SQLite sandbox fallback
 - **Validation**: Pydantic v2
+- **Decision Policy (Option B)**:
+  - `0` to `flag_threshold - 1` (default `0–49`): `APPROVED` (no alert)
+  - `flag_threshold` to `block_threshold - 1` (default `50–84`): `UNDER_REVIEW` + `MEDIUM` alert
+  - `>= block_threshold` (default `85–100`): `FLAGGED` + `CRITICAL` alert by default (`auto_block_high_risk=false`), or `BLOCKED` + `CRITICAL` alert when `auto_block_high_risk=true` is explicitly enabled in Settings
 - **Networking**: High-concurrency WebSockets for live transaction/alert broadcasting
 - **Data Engine**: Seeded with 50+ realistic multi-channel transactions and baseline benchmark evaluation records (explicitly labeled `DEMO DATA`)
 
@@ -46,17 +50,23 @@ Fraud Detector/
 │   │   │   ├── transactions.py    # List, detail, and inject transactions
 │   │   │   ├── alerts.py          # Incident queue & status resolution
 │   │   │   ├── analytics.py       # KPI metrics & trend aggregations
-│   │   │   └── model_metrics.py   # Model evaluation & confusion matrix
+│   │   │   ├── model_metrics.py   # Model evaluation & confusion matrix
+│   │   │   └── settings.py        # Persistent fraud-engine threshold settings
 │   │   ├── config.py              # Environment variable configuration
 │   │   ├── database.py            # SQLAlchemy engine & session factory
-│   │   ├── models.py              # Transaction, FraudAlert, ModelPerformance models
+│   │   ├── db_migrate.py          # Alembic migration runner & CLI entrypoint
+│   │   ├── models.py              # Transaction, FraudAlert, ModelPerformance, SystemSetting models
 │   │   ├── schemas.py             # Pydantic v2 request/response schemas
+│   │   ├── scoring.py             # Phase 1 heuristic scoring & Option B classification policy
 │   │   ├── seed.py                # Realistic multi-channel demo data generator
+│   │   ├── settings_service.py    # Persistent settings & fallback defaults
+│   │   ├── simulator.py           # Synthetic transaction generator & live WS loop
 │   │   ├── ws_manager.py          # WebSocket connection & broadcast manager
-│   │   └── main.py                # FastAPI app & background live simulator
+│   │   └── main.py                # FastAPI app & lifespan orchestration
 │   ├── requirements.txt
 │   ├── .env.example
-│   └── run.py                     # Convenience launcher
+│   ├── run.py                     # Convenience API server launcher
+│   └── run_simulator.py           # Standalone synthetic transaction simulator CLI
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
@@ -116,19 +126,31 @@ Fraud Detector/
    pip install -r requirements.txt
    ```
 
-4. *(Optional)* Configure database in `backend/.env`:
+4. *(Optional)* Configure database and runtime flags in `backend/.env`:
    - Default is SQLite (`sqlite:///./fraudshield.db`) for immediate zero-config execution.
-   - For PostgreSQL:
+   - For PostgreSQL (`psycopg2-binary` is already included in `requirements.txt`):
      ```env
      DATABASE_URL=postgresql+psycopg2://postgres:password@localhost:5432/fraudshield
      ```
+   - `AUTO_MIGRATE_ON_STARTUP` and `ENABLE_LIVE_SIMULATOR` default to `false` for multi-worker safety (preventing concurrent startup migration races and duplicate in-process simulators).
 
-5. Launch the backend server:
+5. Run database migrations and initial demo seeding deliberately before booting the API:
+   ```bash
+   python -m app.db_migrate --seed
+   ```
+
+6. Launch the backend server:
    ```bash
    python run.py
    ```
    The backend API will be available at `http://127.0.0.1:8000`.  
    Interactive API docs (Swagger): `http://127.0.0.1:8000/docs`
+
+7. *(Optional)* Run the standalone synthetic transaction simulator in a separate terminal (recommended over in-process simulation when running multiple Uvicorn workers):
+   ```bash
+   python run_simulator.py
+   ```
+   *(For single-worker local development, you may alternatively set `ENABLE_LIVE_SIMULATOR=true` and `AUTO_MIGRATE_ON_STARTUP=true` in `backend/.env`.)*
 
 ---
 

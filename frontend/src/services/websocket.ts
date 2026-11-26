@@ -1,18 +1,43 @@
-type EventCallback = (event: { event_type: string; data: any; timestamp: string }) => void;
+type EventCallback = (event: { event_type: string; data: unknown; timestamp: string }) => void;
+
+export function resolveWebSocketUrl(): string {
+  const envWsUrl = import.meta.env.VITE_WS_URL as string | undefined;
+  if (envWsUrl && envWsUrl.trim()) {
+    return envWsUrl.trim().replace(/\/+$/, '');
+  }
+
+  const envApiUrl = import.meta.env.VITE_API_URL as string | undefined;
+  if (envApiUrl && envApiUrl.trim()) {
+    const base = envApiUrl
+      .trim()
+      .replace(/\/+$/, '')
+      .replace(/\/api$/, '')
+      .replace(/^https:/i, 'wss:')
+      .replace(/^http:/i, 'ws:');
+    if (/^wss?:\/\//i.test(base)) {
+      return `${base}/ws/live`;
+    }
+  }
+
+  const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${wsProto}//127.0.0.1:8000/ws/live`;
+}
 
 class WebSocketClient {
   private socket: WebSocket | null = null;
   private url: string;
   private listeners: EventCallback[] = [];
   private reconnectInterval: number = 3000;
-  private reconnectTimer: any = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private isExplicitlyClosed: boolean = false;
   public isConnected: boolean = false;
 
   constructor() {
-    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = '127.0.0.1:8000';
-    this.url = `${wsProto}//${host}/ws/live`;
+    this.url = resolveWebSocketUrl();
+  }
+
+  public getUrl(): string {
+    return this.url;
   }
 
   public connect() {
@@ -29,7 +54,7 @@ class WebSocketClient {
         try {
           const data = JSON.parse(event.data);
           this.notify(data);
-        } catch (e) {
+        } catch {
           // ignore non-json ping/pong
         }
       };
@@ -45,7 +70,7 @@ class WebSocketClient {
         console.warn('[FraudShield WS] Connection issue:', err);
         this.socket?.close();
       };
-    } catch (e) {
+    } catch {
       this.scheduleReconnect();
     }
   }
@@ -66,7 +91,7 @@ class WebSocketClient {
     };
   }
 
-  private notify(data: any) {
+  private notify(data: { event_type: string; data: unknown; timestamp: string }) {
     this.listeners.forEach((callback) => {
       try {
         callback(data);

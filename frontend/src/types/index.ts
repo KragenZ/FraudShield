@@ -4,6 +4,23 @@ export type AlertSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
 export type AlertStatus = 'NEW' | 'IN_REVIEW' | 'RESOLVED' | 'FALSE_POSITIVE';
 
+export interface SystemSettings {
+  flag_threshold: number;
+  block_threshold: number;
+  auto_block_high_risk: boolean;
+  email_alerts: boolean;
+  updated_at?: string | null;
+  updated_by?: string | null;
+}
+
+export interface SystemSettingsUpdate {
+  flag_threshold?: number;
+  block_threshold?: number;
+  auto_block_high_risk?: boolean;
+  email_alerts?: boolean;
+  updated_by?: string;
+}
+
 export interface Transaction {
   id: string;
   customer_id: string;
@@ -45,6 +62,14 @@ export interface OverviewStats {
   high_risk_alerts: number;
   resolved_alerts: number;
   average_risk_score: number;
+  approved_count?: number;
+  under_review_count?: number;
+  flagged_count?: number;
+  blocked_count?: number;
+  approved_rate?: number;
+  under_review_rate?: number;
+  flagged_rate?: number;
+  blocked_rate?: number;
 }
 
 export interface FraudTrendPoint {
@@ -53,6 +78,8 @@ export interface FraudTrendPoint {
   fraud_count: number;
   total_volume: number;
   fraud_volume: number;
+  under_review_count?: number;
+  under_review_volume?: number;
 }
 
 export interface TransactionTypeBreakdown {
@@ -60,6 +87,7 @@ export interface TransactionTypeBreakdown {
   count: number;
   volume: number;
   fraud_count: number;
+  under_review_count?: number;
 }
 
 export interface AnalyticsSummary {
@@ -102,4 +130,7 @@ export interface AlertListResponse {
   total: number;
   unresolved_count: number;
   alerts: FraudAlert[];
+  page: number;
+  page_size: number;
+  total_pages: number;
 }

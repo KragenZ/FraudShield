@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, ShieldAlert, CheckCircle2, AlertTriangle, XCircle, Clock } from 'lucide-react';
+import { X, ShieldAlert, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { FraudAlert } from '../../types';
 import { RiskBadge } from '../common/RiskBadge';
 import { StatusBadge } from '../common/StatusBadge';
@@ -18,16 +18,18 @@ export const AlertReviewModal: React.FC<AlertReviewModalProps> = ({
   onClose,
   onSave
 }) => {
-  if (!alert) return null;
-
   const [selectedStatus, setSelectedStatus] = useState<string>(
-    alert.status === 'NEW' ? 'RESOLVED' : alert.status
+    alert?.status === 'NEW' ? 'RESOLVED' : alert?.status || 'RESOLVED'
   );
-  const [reviewerName, setReviewerName] = useState<string>(alert.reviewed_by || 'Security Analyst');
+  const [reviewerName, setReviewerName] = useState<string>(
+    alert?.reviewed_by || 'Security Analyst'
+  );
   const [resolutionNotes, setResolutionNotes] = useState<string>(
-    alert.resolution_notes || ''
+    alert?.resolution_notes || ''
   );
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  if (!alert) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,6 +70,7 @@ export const AlertReviewModal: React.FC<AlertReviewModalProps> = ({
 
           <button
             onClick={onClose}
+            aria-label="Close alert review modal"
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />

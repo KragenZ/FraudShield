@@ -13,8 +13,6 @@ export const NewTransactionModal: React.FC<NewTransactionModalProps> = ({
   onClose,
   onSuccess
 }) => {
-  if (!isOpen) return null;
-
   const [amount, setAmount] = useState<string>('8450.00');
   const [customerName, setCustomerName] = useState<string>('Elena Rostova');
   const [customerId, setCustomerId] = useState<string>('CUST-9102');
@@ -22,6 +20,8 @@ export const NewTransactionModal: React.FC<NewTransactionModalProps> = ({
   const [merchant, setMerchant] = useState<string>('Binance P2P Escrow');
   const [location, setLocation] = useState<string>('Unknown Proxy (Tor Exit Node)');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,7 +42,8 @@ export const NewTransactionModal: React.FC<NewTransactionModalProps> = ({
       onClose();
     } catch (err) {
       console.error('Failed to submit transaction:', err);
-      alert('Failed to submit transaction: ' + (err as any).message);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      alert('Failed to submit transaction: ' + message);
     } finally {
       setIsSubmitting(false);
     }
@@ -83,6 +84,7 @@ export const NewTransactionModal: React.FC<NewTransactionModalProps> = ({
 
           <button
             onClick={onClose}
+            aria-label="Close new transaction modal"
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
             <X className="w-4 h-4" />

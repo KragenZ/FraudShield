@@ -18,8 +18,8 @@ class TransactionBase(BaseModel):
 class TransactionCreate(TransactionBase):
     id: Optional[str] = None
     fraud_probability: Optional[float] = Field(default=0.0, ge=0.0, le=1.0)
-    risk_score: Optional[int] = Field(default=0, ge=0, le=100)
-    status: Optional[TransactionStatus] = TransactionStatus.APPROVED
+    risk_score: Optional[int] = Field(default=None, ge=0, le=100)
+    status: Optional[TransactionStatus] = None
 
 class TransactionResponse(TransactionBase):
     id: str
@@ -114,6 +114,14 @@ class OverviewStats(BaseModel):
     high_risk_alerts: int
     resolved_alerts: int
     average_risk_score: float
+    approved_count: int = 0
+    under_review_count: int = 0
+    flagged_count: int = 0
+    blocked_count: int = 0
+    approved_rate: float = 0.0
+    under_review_rate: float = 0.0
+    flagged_rate: float = 0.0
+    blocked_rate: float = 0.0
 
 class FraudTrendPoint(BaseModel):
     time_label: str
@@ -121,12 +129,15 @@ class FraudTrendPoint(BaseModel):
     fraud_count: int
     total_volume: float
     fraud_volume: float
+    under_review_count: int = 0
+    under_review_volume: float = 0.0
 
 class TransactionTypeBreakdown(BaseModel):
     type_name: str
     count: int
     volume: float
     fraud_count: int
+    under_review_count: int = 0
 
 class AnalyticsSummaryResponse(BaseModel):
     stats: OverviewStats

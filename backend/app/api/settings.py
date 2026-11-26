@@ -6,7 +6,13 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import SystemSetting
 from app.schemas import SettingsResponse, SettingsUpdate
-from app.settings_service import get_settings, SETTINGS_ROW_ID, DEFAULT_FLAG_THRESHOLD, DEFAULT_BLOCK_THRESHOLD
+from app.settings_service import (
+    DEFAULT_AUTO_BLOCK_HIGH_RISK,
+    DEFAULT_BLOCK_THRESHOLD,
+    DEFAULT_FLAG_THRESHOLD,
+    SETTINGS_ROW_ID,
+    get_settings,
+)
 
 router = APIRouter(prefix="/settings", tags=["Settings"])
 
@@ -40,8 +46,16 @@ def update_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
     # Start from the effective values so a corrupt stored row is repaired.
     row.flag_threshold = flag
     row.block_threshold = block
-    row.auto_block_high_risk = changes.get("auto_block_high_risk", bool(current.auto_block_high_risk))
-    row.email_alerts = changes.get("email_alerts", bool(current.email_alerts))
+    default_auto_block = (
+        DEFAULT_AUTO_BLOCK_HIGH_RISK
+        if current.auto_block_high_risk is None
+        else bool(current.auto_block_high_risk)
+    )
+    row.auto_block_high_risk = changes.get("auto_block_high_risk", default_auto_block)
+    row.email_alerts = changes.get(
+        "email_alerts",
+        False if current.email_alerts is None else bool(current.email_alerts),
+    )
     if "updated_by" in changes:
         row.updated_by = changes["updated_by"]
     row.updated_at = datetime.utcnow()

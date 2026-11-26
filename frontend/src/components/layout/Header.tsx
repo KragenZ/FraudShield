@@ -1,7 +1,7 @@
 import React from 'react';
 import { LiveIndicator } from '../common/LiveIndicator';
 import { DemoBadge } from '../common/DemoBadge';
-import { PlusCircle, RefreshCw, Server } from 'lucide-react';
+import { PlusCircle, RefreshCw } from 'lucide-react';
 
 interface HeaderProps {
   title: string;

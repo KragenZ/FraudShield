@@ -7,10 +7,11 @@ from app.models import (
     FraudAlert, 
     ModelPerformanceRecord,
     TransactionType, 
-    TransactionStatus, 
     AlertSeverity, 
     AlertStatus
 )
+from app.scoring import classify_transaction, compute_synthetic_probability
+from app.settings_service import get_settings
 
 def seed_database(db: Session, force: bool = False):
     """
@@ -27,6 +28,8 @@ def seed_database(db: Session, force: bool = False):
         db.query(Transaction).delete()
         db.query(ModelPerformanceRecord).delete()
         db.commit()
+
+    cfg = get_settings(db)
 
     customers = [
         ("CUST-9102", "Elena Rostova", "192.168.1.45", "Chrome on MacOS", "New York, USA"),
@@ -60,134 +63,94 @@ def seed_database(db: Session, force: bool = False):
     alerts = []
 
     # Generate 50 realistic demo transactions over the last 7 days
-    for i in range(50):
+    for _ in range(50):
         cust = random.choice(customers)
         t_type = random.choice(types)
         merch = random.choice(merchants)
         time_offset_hours = random.uniform(0.1, 168)
         t_time = now - timedelta(hours=time_offset_hours)
-        
-        # Fraud probability distribution: mostly low risk, a few high risk
+
+        # Synthetic score generation separated from Option B policy classification
         risk_roll = random.random()
-        
-        if risk_roll > 0.85: # Critical / High risk
-            risk_score = random.randint(82, 98)
-            fraud_prob = round(risk_score / 100.0, 3)
+        if risk_roll > 0.85:  # High risk band (85-98)
+            risk_score = random.randint(85, 98)
             amount = round(random.uniform(4500.0, 48500.0), 2)
-            status = TransactionStatus.FLAGGED.value if risk_score < 90 else TransactionStatus.BLOCKED.value
-            
-            t_id = f"TX-{uuid.uuid4().hex[:8].upper()}"
-            tx = Transaction(
-                id=t_id,
-                customer_id=cust[0],
-                customer_name=cust[1],
-                amount=amount,
-                currency="USD",
-                transaction_type=t_type,
-                timestamp=t_time,
-                fraud_probability=fraud_prob,
-                risk_score=risk_score,
-                status=status,
-                merchant=merch,
-                location=cust[4] if random.random() > 0.4 else "Unknown Proxy IP (Tor Exit Node)",
-                ip_address=cust[2] if random.random() > 0.3 else "185.220.101.5",
-                device_type=cust[3],
-                is_demo_data=True
-            )
-            transactions.append(tx)
-
-            # Generate corresponding Alert
-            severity = AlertSeverity.CRITICAL.value if risk_score >= 90 else AlertSeverity.HIGH.value
-            reasons = [
-                f"Abnormal high-velocity transfer of ${amount:,.2f} exceeding 5x customer historical baseline.",
-                f"Geographic anomaly: Transaction origin mismatched with authenticated device location (Tor Exit Node detected).",
-                f"Rapid successive micro-charges followed by large drain to crypto exchange gateway.",
-                f"Known mule account routing pattern identified by graph intelligence heuristic.",
-                f"New device fingerprint initiated urgent off-hours cross-border wire."
-            ]
-            
-            alert_status = random.choice([AlertStatus.NEW.value, AlertStatus.IN_REVIEW.value, AlertStatus.RESOLVED.value])
-            alert = FraudAlert(
-                id=f"ALT-{uuid.uuid4().hex[:8].upper()}",
-                transaction_id=t_id,
-                severity=severity,
-                risk_score=risk_score,
-                reason=random.choice(reasons),
-                status=alert_status,
-                created_at=t_time + timedelta(minutes=1),
-                updated_at=t_time + timedelta(minutes=random.randint(5, 45)),
-                reviewed_by="Security Ops" if alert_status != AlertStatus.NEW.value else None,
-                resolution_notes="Investigated user IP history and requested step-up 2FA authentication." if alert_status == AlertStatus.RESOLVED.value else None,
-                is_demo_data=True
-            )
-            alerts.append(alert)
-
-        elif risk_roll > 0.70: # Medium risk
-            risk_score = random.randint(45, 75)
-            fraud_prob = round(risk_score / 100.0, 3)
+            location = cust[4] if random.random() > 0.4 else "Unknown Proxy IP (Tor Exit Node)"
+            ip_address = cust[2] if random.random() > 0.3 else "185.220.101.5"
+        elif risk_roll > 0.70:  # Medium risk band (50-84)
+            risk_score = random.randint(50, 84)
             amount = round(random.uniform(500.0, 4800.0), 2)
-            status = TransactionStatus.UNDER_REVIEW.value if random.random() > 0.5 else TransactionStatus.APPROVED.value
-            
-            t_id = f"TX-{uuid.uuid4().hex[:8].upper()}"
-            tx = Transaction(
-                id=t_id,
-                customer_id=cust[0],
-                customer_name=cust[1],
-                amount=amount,
-                currency="USD",
-                transaction_type=t_type,
-                timestamp=t_time,
-                fraud_probability=fraud_prob,
-                risk_score=risk_score,
-                status=status,
-                merchant=merch,
-                location=cust[4],
-                ip_address=cust[2],
-                device_type=cust[3],
-                is_demo_data=True
-            )
-            transactions.append(tx)
+            location = cust[4]
+            ip_address = cust[2]
+        else:  # Low risk band (2-28)
+            risk_score = random.randint(2, 28)
+            amount = round(random.uniform(12.50, 850.0), 2)
+            location = cust[4]
+            ip_address = cust[2]
 
-            if status == TransactionStatus.UNDER_REVIEW.value:
-                alert = FraudAlert(
+        fraud_prob = compute_synthetic_probability(risk_score)
+        status, severity = classify_transaction(risk_score, cfg)
+
+        t_id = f"TX-{uuid.uuid4().hex[:8].upper()}"
+        tx = Transaction(
+            id=t_id,
+            customer_id=cust[0],
+            customer_name=cust[1],
+            amount=amount,
+            currency="USD",
+            transaction_type=t_type,
+            timestamp=t_time,
+            fraud_probability=fraud_prob,
+            risk_score=risk_score,
+            status=status,
+            merchant=merch,
+            location=location,
+            ip_address=ip_address,
+            device_type=cust[3],
+            is_demo_data=True,
+        )
+        transactions.append(tx)
+
+        if severity is not None:
+            if severity in (AlertSeverity.CRITICAL.value, AlertSeverity.HIGH.value):
+                reasons = [
+                    f"Abnormal high-velocity transfer of ${amount:,.2f} exceeding 5x customer historical baseline.",
+                    "Geographic anomaly: Transaction origin mismatched with authenticated device location (Tor Exit Node detected).",
+                    "Rapid successive micro-charges followed by large drain to crypto exchange gateway.",
+                    "Known mule account routing pattern identified by graph intelligence heuristic.",
+                    "New device fingerprint initiated urgent off-hours cross-border wire.",
+                ]
+                reason = random.choice(reasons)
+                alert_status = random.choice([AlertStatus.NEW.value, AlertStatus.IN_REVIEW.value, AlertStatus.RESOLVED.value])
+                updated_at = t_time + timedelta(minutes=random.randint(5, 45))
+                reviewed_by = "Security Ops" if alert_status != AlertStatus.NEW.value else None
+                resolution_notes = (
+                    "Investigated user IP history and requested step-up 2FA authentication."
+                    if alert_status == AlertStatus.RESOLVED.value
+                    else None
+                )
+            else:
+                reason = f"Medium risk transaction of ${amount:,.2f} flagged for automated step-up verification."
+                alert_status = AlertStatus.NEW.value
+                updated_at = t_time + timedelta(minutes=1)
+                reviewed_by = None
+                resolution_notes = None
+
+            alerts.append(
+                FraudAlert(
                     id=f"ALT-{uuid.uuid4().hex[:8].upper()}",
                     transaction_id=t_id,
-                    severity=AlertSeverity.MEDIUM.value,
+                    severity=severity,
                     risk_score=risk_score,
-                    reason=f"Medium risk transaction of ${amount:,.2f} flagged for automated step-up verification.",
-                    status=AlertStatus.NEW.value,
+                    reason=reason,
+                    status=alert_status,
                     created_at=t_time + timedelta(minutes=1),
-                    updated_at=t_time + timedelta(minutes=1),
-                    reviewed_by=None,
-                    resolution_notes=None,
-                    is_demo_data=True
+                    updated_at=updated_at,
+                    reviewed_by=reviewed_by,
+                    resolution_notes=resolution_notes,
+                    is_demo_data=True,
                 )
-                alerts.append(alert)
-
-        else: # Normal / Legitimate transaction
-            risk_score = random.randint(2, 28)
-            fraud_prob = round(risk_score / 100.0, 3)
-            amount = round(random.uniform(12.50, 850.0), 2)
-            
-            t_id = f"TX-{uuid.uuid4().hex[:8].upper()}"
-            tx = Transaction(
-                id=t_id,
-                customer_id=cust[0],
-                customer_name=cust[1],
-                amount=amount,
-                currency="USD",
-                transaction_type=t_type,
-                timestamp=t_time,
-                fraud_probability=fraud_prob,
-                risk_score=risk_score,
-                status=TransactionStatus.APPROVED.value,
-                merchant=merch,
-                location=cust[4],
-                ip_address=cust[2],
-                device_type=cust[3],
-                is_demo_data=True
             )
-            transactions.append(tx)
 
     # Sort transactions chronologically
     transactions.sort(key=lambda x: x.timestamp, reverse=True)

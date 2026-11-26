@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Sidebar, NavigationTab } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { OverviewPage } from './pages/OverviewPage';
@@ -10,11 +10,13 @@ import { SettingsPage } from './pages/SettingsPage';
 import { TransactionDetailModal } from './components/modals/TransactionDetailModal';
 import { AlertReviewModal } from './components/modals/AlertReviewModal';
 import { NewTransactionModal } from './components/modals/NewTransactionModal';
+import { SettingsProvider } from './context/SettingsContext';
 import { api } from './services/api';
 import { liveSocket } from './services/websocket';
+import { applyLiveTransactionToAnalytics } from './utils/analyticsCounters';
 import { AnalyticsSummary, Transaction, FraudAlert } from './types';
 
-export const App: React.FC = () => {
+const AppContent: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<NavigationTab>('overview');
   const [wsConnected, setWsConnected] = useState<boolean>(false);
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
@@ -29,68 +31,58 @@ export const App: React.FC = () => {
   const [selectedAlert, setSelectedAlert] = useState<FraudAlert | null>(null);
   const [isInjectModalOpen, setIsInjectModalOpen] = useState<boolean>(false);
 
-  // Fetch initial summary data
-  const loadDashboardData = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const [analyticsRes, txRes, alertRes] = await Promise.all([
-        api.getAnalyticsSummary(),
-        api.getTransactions({ page: 1, page_size: 10 }),
-        api.getAlerts({ limit: 10 })
-      ]);
-
-      setAnalytics(analyticsRes);
-      setRecentTransactions(txRes.transactions);
-      setRecentAlerts(alertRes.alerts);
-      setUnresolvedAlertCount(alertRes.unresolved_count);
-    } catch (err) {
-      console.error('Failed to load initial dashboard data:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    loadDashboardData();
-  }, [loadDashboardData, refreshTrigger]);
+    let cancelled = false;
+
+    const loadDashboardData = async () => {
+      try {
+        const [analyticsRes, txRes, alertRes] = await Promise.all([
+          api.getAnalyticsSummary(),
+          api.getTransactions({ page: 1, page_size: 10 }),
+          api.getAlerts({ limit: 10 })
+        ]);
+
+        if (!cancelled) {
+          setAnalytics(analyticsRes);
+          setRecentTransactions(txRes.transactions);
+          setRecentAlerts(alertRes.alerts);
+          setUnresolvedAlertCount(alertRes.unresolved_count);
+        }
+      } catch (err) {
+        console.error('Failed to load initial dashboard data:', err);
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void loadDashboardData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshTrigger]);
 
   // Setup WebSocket connection and live event listeners
   useEffect(() => {
     liveSocket.connect();
-    
-    // Check connection state periodically
+
     const connCheck = setInterval(() => {
       setWsConnected(liveSocket.isConnected);
     }, 1000);
 
     const unsubscribe = liveSocket.subscribe((event) => {
       if (event.event_type === 'NEW_TRANSACTION') {
-        const newTx: Transaction = event.data;
+        const newTx = event.data as Transaction;
         setRecentTransactions((prev) => [newTx, ...prev.slice(0, 19)]);
-        
-        // Dynamically increment analytics counts
-        setAnalytics((prev) => {
-          if (!prev) return prev;
-          const isFraud = newTx.status === 'FLAGGED' || newTx.status === 'BLOCKED';
-          const newTotal = prev.stats.total_transactions + 1;
-          const newFraudCount = prev.stats.fraud_detected + (isFraud ? 1 : 0);
-          return {
-            ...prev,
-            stats: {
-              ...prev.stats,
-              total_transactions: newTotal,
-              fraud_detected: newFraudCount,
-              fraud_detection_rate: Number(((newFraudCount / newTotal) * 100).toFixed(2)),
-              total_volume: Math.round(prev.stats.total_volume + newTx.amount)
-            }
-          };
-        });
+        setAnalytics((prev) => applyLiveTransactionToAnalytics(prev, newTx));
       } else if (event.event_type === 'NEW_ALERT') {
-        const newAlert: FraudAlert = event.data;
+        const newAlert = event.data as FraudAlert;
         setRecentAlerts((prev) => [newAlert, ...prev.slice(0, 19)]);
         setUnresolvedAlertCount((prev) => prev + 1);
       } else if (event.event_type === 'ALERT_UPDATED') {
-        const updated = event.data;
+        const updated = event.data as Partial<FraudAlert> & { id: string };
         setRecentAlerts((prev) =>
           prev.map((al) => (al.id === updated.id ? { ...al, ...updated } : al))
         );
@@ -108,6 +100,7 @@ export const App: React.FC = () => {
   }, []);
 
   const handleRefresh = () => {
+    setIsLoading(true);
     setRefreshTrigger((prev) => prev + 1);
   };
 
@@ -116,6 +109,7 @@ export const App: React.FC = () => {
     data: { status: string; reviewed_by: string; resolution_notes: string }
   ) => {
     await api.updateAlertStatus(alertId, data);
+    setIsLoading(true);
     setRefreshTrigger((prev) => prev + 1);
   };
 
@@ -211,6 +205,7 @@ export const App: React.FC = () => {
       />
 
       <AlertReviewModal
+        key={selectedAlert?.id || 'none'}
         alert={selectedAlert}
         onClose={() => setSelectedAlert(null)}
         onSave={handleSaveAlertResolution}
@@ -224,6 +219,14 @@ export const App: React.FC = () => {
         }}
       />
     </div>
+  );
+};
+
+export const App: React.FC = () => {
+  return (
+    <SettingsProvider>
+      <AppContent />
+    </SettingsProvider>
   );
 };
 

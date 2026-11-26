@@ -1,16 +1,17 @@
-"""Persistent fraud-engine settings and the shared scoring decision logic."""
+"""Persistent fraud-engine settings and re-exported scoring decision policy."""
 import logging
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from app.models import SystemSetting, TransactionStatus, AlertSeverity
+from app.models import SystemSetting
+from app.scoring import classify_transaction
 
 logger = logging.getLogger("fraudshield.settings")
 
 DEFAULT_FLAG_THRESHOLD = 50
 DEFAULT_BLOCK_THRESHOLD = 85
+DEFAULT_AUTO_BLOCK_HIGH_RISK = False
 SETTINGS_ROW_ID = 1
 
 
@@ -18,7 +19,7 @@ SETTINGS_ROW_ID = 1
 class EffectiveSettings:
     flag_threshold: int = DEFAULT_FLAG_THRESHOLD
     block_threshold: int = DEFAULT_BLOCK_THRESHOLD
-    auto_block_high_risk: bool = True
+    auto_block_high_risk: bool = DEFAULT_AUTO_BLOCK_HIGH_RISK
     email_alerts: bool = False
 
 
@@ -42,7 +43,7 @@ def get_settings(db: Session) -> SystemSetting:
                 id=SETTINGS_ROW_ID,
                 flag_threshold=DEFAULT_FLAG_THRESHOLD,
                 block_threshold=DEFAULT_BLOCK_THRESHOLD,
-                auto_block_high_risk=True,
+                auto_block_high_risk=DEFAULT_AUTO_BLOCK_HIGH_RISK,
                 email_alerts=False,
             )
             db.add(row)
@@ -57,8 +58,12 @@ def get_settings(db: Session) -> SystemSetting:
                 id=SETTINGS_ROW_ID,
                 flag_threshold=DEFAULT_FLAG_THRESHOLD,
                 block_threshold=DEFAULT_BLOCK_THRESHOLD,
-                auto_block_high_risk=bool(row.auto_block_high_risk),
-                email_alerts=bool(row.email_alerts),
+                auto_block_high_risk=(
+                    bool(row.auto_block_high_risk)
+                    if row.auto_block_high_risk is not None
+                    else DEFAULT_AUTO_BLOCK_HIGH_RISK
+                ),
+                email_alerts=bool(row.email_alerts) if row.email_alerts is not None else False,
                 updated_at=row.updated_at,
                 updated_by=row.updated_by,
             )
@@ -73,16 +78,9 @@ def get_settings(db: Session) -> SystemSetting:
             id=SETTINGS_ROW_ID,
             flag_threshold=DEFAULT_FLAG_THRESHOLD,
             block_threshold=DEFAULT_BLOCK_THRESHOLD,
-            auto_block_high_risk=True,
+            auto_block_high_risk=DEFAULT_AUTO_BLOCK_HIGH_RISK,
             email_alerts=False,
         )
 
 
-def decide(risk_score: int, cfg, explicit_status: Optional[str] = None) -> Tuple[str, Optional[str]]:
-    """Return (transaction_status, alert_severity or None) for a risk score."""
-    if risk_score >= cfg.block_threshold:
-        status = TransactionStatus.BLOCKED.value if cfg.auto_block_high_risk else TransactionStatus.FLAGGED.value
-        return status, AlertSeverity.CRITICAL.value
-    if risk_score >= cfg.flag_threshold:
-        return TransactionStatus.FLAGGED.value, AlertSeverity.HIGH.value
-    return (explicit_status or TransactionStatus.APPROVED.value), None
+decide = classify_transaction

@@ -7,8 +7,6 @@ import {
   TrendingUp,
   Activity,
   ArrowUpRight,
-  ExternalLink,
-  ShieldCheck,
   Zap
 } from 'lucide-react';
 import {
@@ -20,9 +18,7 @@ import {
   Tooltip,
   PieChart,
   Pie,
-  Cell,
-  BarChart,
-  Bar
+  Cell
 } from 'recharts';
 import { AnalyticsSummary, Transaction, FraudAlert } from '../types';
 import { MetricCard } from '../components/common/MetricCard';
@@ -64,6 +60,10 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
   }
 
   const { stats, trends, type_distribution } = analytics;
+  const approvedCount = stats.approved_count ?? 0;
+  const underReviewCount = stats.under_review_count ?? 0;
+  const flaggedCount = stats.flagged_count ?? 0;
+  const blockedCount = stats.blocked_count ?? 0;
 
   return (
     <div className="space-y-6">
@@ -72,16 +72,16 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
         <MetricCard
           title="Total Transactions"
           value={stats.total_transactions.toLocaleString()}
-          subtitle="Processed through gateway"
+          subtitle={`Approved: ${approvedCount.toLocaleString()} • Review: ${underReviewCount.toLocaleString()}`}
           icon={CreditCard}
-          trend={{ value: "+12.4% vs last week", isPositive: true }}
+          trend={{ value: `${stats.approved_rate ?? 0}% approved`, isPositive: true }}
         />
         <MetricCard
           title="Fraud Detected"
           value={stats.fraud_detected.toLocaleString()}
-          subtitle={`${stats.high_risk_alerts} high-risk incidents logged`}
+          subtitle={`Flagged: ${flaggedCount.toLocaleString()} • Blocked: ${blockedCount.toLocaleString()} (${stats.high_risk_alerts} alerts)`}
           icon={ShieldAlert}
-          trend={{ value: "Action Required", isWarning: stats.fraud_detected > 0 }}
+          trend={{ value: 'Action Required', isWarning: stats.fraud_detected > 0 }}
           highlight={stats.fraud_detected > 0}
         />
         <MetricCard
@@ -89,14 +89,14 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
           value={`${stats.fraud_detection_rate}%`}
           subtitle={`Avg risk index: ${stats.average_risk_score}/100`}
           icon={Percent}
-          trend={{ value: "Target < 2.5%", isPositive: stats.fraud_detection_rate < 2.5 }}
+          trend={{ value: 'Target < 2.5%', isPositive: stats.fraud_detection_rate < 2.5 }}
         />
         <MetricCard
           title="Total Volume"
           value={`$${stats.total_volume.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
           subtitle="USD total processed"
           icon={DollarSign}
-          trend={{ value: "+8.1% volume", isPositive: true }}
+          trend={{ value: `${underReviewCount} under review`, isWarning: underReviewCount > 0 }}
         />
       </div>
 
@@ -159,7 +159,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
                     fontSize: '12px',
                     color: '#F8FAFC'
                   }}
-                  formatter={(value: any) => [`$${Number(value).toLocaleString()}`, '']}
+                  formatter={(value: unknown) => [`$${Number(value).toLocaleString()}`, '']}
                 />
                 <Area
                   type="monotone"
@@ -208,7 +208,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
                   paddingAngle={3}
                 >
                   {type_distribution.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                    <Cell key={`cell-${entry.type_name}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                   ))}
                 </Pie>
                 <Tooltip
@@ -219,7 +219,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
                     fontSize: '12px',
                     color: '#F8FAFC'
                   }}
-                  formatter={(value: any) => [`$${Number(value).toLocaleString()}`, 'Volume']}
+                  formatter={(value: unknown) => [`$${Number(value).toLocaleString()}`, 'Volume']}
                 />
               </PieChart>
             </ResponsiveContainer>

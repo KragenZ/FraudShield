@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from conftest import make_tx, make_alert
+from conftest import make_alert, make_tx
 
 
 def seed(db, n=7):
@@ -14,6 +14,14 @@ def seed(db, n=7):
             created_at=base + timedelta(minutes=i),
         )
     return tx
+
+
+def test_empty_alerts_page_metadata(client):
+    b = client.get("/api/alerts").json()
+    assert b["total"] == 0
+    assert b["unresolved_count"] == 0
+    assert (b["page"], b["page_size"], b["total_pages"]) == (1, 50, 1)
+    assert b["alerts"] == []
 
 
 def test_default_response_has_page_fields(client, db):
@@ -67,8 +75,22 @@ def test_detail_404(client, db):
 
 
 def test_patch_status_and_invalid(client, db):
-    seed(db, 1)
-    r = client.patch("/api/alerts/ALT-000/status", json={"status": "RESOLVED", "resolution_notes": "ok"})
-    assert r.status_code == 200 and r.json()["status"] == "RESOLVED"
-    r = client.patch("/api/alerts/ALT-000/status", json={"status": "BOGUS"})
-    assert r.status_code == 400
+    seed(db, 3)
+    # Initially 3 NEW alerts -> unresolved_count == 3
+    assert client.get("/api/alerts").json()["unresolved_count"] == 3
+
+    r_in_rev = client.patch("/api/alerts/ALT-000/status", json={"status": "IN_REVIEW", "reviewed_by": "Analyst A"})
+    assert r_in_rev.status_code == 200 and r_in_rev.json()["status"] == "IN_REVIEW"
+    # IN_REVIEW is still unresolved
+    assert client.get("/api/alerts").json()["unresolved_count"] == 3
+
+    r_fp = client.patch("/api/alerts/ALT-001/status", json={"status": "FALSE_POSITIVE"})
+    assert r_fp.status_code == 200 and r_fp.json()["status"] == "FALSE_POSITIVE"
+    assert client.get("/api/alerts").json()["unresolved_count"] == 2
+
+    r_res = client.patch("/api/alerts/ALT-000/status", json={"status": "RESOLVED", "resolution_notes": "ok"})
+    assert r_res.status_code == 200 and r_res.json()["status"] == "RESOLVED"
+    assert client.get("/api/alerts").json()["unresolved_count"] == 1
+
+    r_bad = client.patch("/api/alerts/ALT-000/status", json={"status": "BOGUS"})
+    assert r_bad.status_code == 400

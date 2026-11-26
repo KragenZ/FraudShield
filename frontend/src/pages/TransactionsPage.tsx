@@ -1,12 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   Search,
-  Filter,
   ChevronLeft,
   ChevronRight,
-  CreditCard,
-  Download,
-  AlertTriangle,
   RotateCcw
 } from 'lucide-react';
 import { Transaction, TransactionListResponse } from '../types';
@@ -27,40 +23,53 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [page, setPage] = useState<number>(1);
   const [search, setSearch] = useState<string>('');
+  const [submittedSearch, setSubmittedSearch] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [pageSize] = useState<number>(12);
 
-  const fetchTransactions = async () => {
-    setIsLoading(true);
-    try {
-      const res = await api.getTransactions({
-        page,
-        page_size: pageSize,
-        search: search.trim() || undefined,
-        status: statusFilter,
-        transaction_type: typeFilter
-      });
-      setData(res);
-    } catch (err) {
-      console.error('Failed to load transactions:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchTransactions();
-  }, [page, statusFilter, typeFilter, refreshTrigger]);
+    let cancelled = false;
+
+    const loadTransactions = async () => {
+      try {
+        const res = await api.getTransactions({
+          page,
+          page_size: pageSize,
+          search: submittedSearch.trim() || undefined,
+          status: statusFilter,
+          transaction_type: typeFilter
+        });
+        if (!cancelled) {
+          setData(res);
+        }
+      } catch (err) {
+        console.error('Failed to load transactions:', err);
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void loadTransactions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [page, pageSize, submittedSearch, statusFilter, typeFilter, refreshTrigger]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setIsLoading(true);
     setPage(1);
-    fetchTransactions();
+    setSubmittedSearch(search);
   };
 
   const handleResetFilters = () => {
+    setIsLoading(true);
     setSearch('');
+    setSubmittedSearch('');
     setStatusFilter('ALL');
     setTypeFilter('ALL');
     setPage(1);
@@ -89,6 +98,7 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
             <select
               value={statusFilter}
               onChange={(e) => {
+                setIsLoading(true);
                 setStatusFilter(e.target.value);
                 setPage(1);
               }}
@@ -107,6 +117,7 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
             <select
               value={typeFilter}
               onChange={(e) => {
+                setIsLoading(true);
                 setTypeFilter(e.target.value);
                 setPage(1);
               }}
@@ -212,7 +223,7 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
         {data && data.total_pages > 0 && (
           <div className="px-4 py-3 bg-[#0B0F19]/80 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
             <div>
-              Showing <span className="text-white font-mono">{((page - 1) * pageSize) + 1}</span> to{' '}
+              Showing <span className="text-white font-mono">{data.total === 0 ? 0 : (page - 1) * pageSize + 1}</span> to{' '}
               <span className="text-white font-mono">
                 {Math.min(page * pageSize, data.total)}
               </span>{' '}
@@ -222,7 +233,10 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
             <div className="flex items-center gap-2">
               <button
                 disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                onClick={() => {
+                  setIsLoading(true);
+                  setPage((p) => Math.max(1, p - 1));
+                }}
                 className="p-1.5 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 text-slate-300 disabled:opacity-30 disabled:pointer-events-none transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" />
@@ -234,7 +248,10 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
 
               <button
                 disabled={page >= data.total_pages}
-                onClick={() => setPage((p) => p + 1)}
+                onClick={() => {
+                  setIsLoading(true);
+                  setPage((p) => p + 1);
+                }}
                 className="p-1.5 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 text-slate-300 disabled:opacity-30 disabled:pointer-events-none transition-colors"
               >
                 <ChevronRight className="w-4 h-4" />

@@ -4,9 +4,7 @@ import {
   Target,
   Sparkles,
   Layers,
-  HelpCircle,
   FileCheck,
-  AlertCircle,
   Activity,
   Zap,
   Info

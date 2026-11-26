@@ -102,7 +102,7 @@ class SystemSetting(Base):
     id = Column(Integer, primary_key=True)
     flag_threshold = Column(Integer, nullable=False, default=50, server_default='50')
     block_threshold = Column(Integer, nullable=False, default=85, server_default='85')
-    auto_block_high_risk = Column(Boolean, nullable=False, default=True, server_default=sa_true())
+    auto_block_high_risk = Column(Boolean, nullable=False, default=False, server_default=sa_false())
     email_alerts = Column(Boolean, nullable=False, default=False, server_default=sa_false())
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     updated_by = Column(String(128), nullable=True)

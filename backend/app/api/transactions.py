@@ -6,14 +6,19 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, desc
 
 from app.database import get_db
-from app.models import Transaction, FraudAlert, TransactionStatus, AlertSeverity, AlertStatus
+from app.models import Transaction, FraudAlert, AlertStatus
 from app.schemas import (
     TransactionResponse, 
     TransactionListResponse, 
     TransactionCreate
 )
 from app.ws_manager import ws_manager
-from app.settings_service import get_settings, decide
+from app.scoring import (
+    classify_transaction,
+    compute_heuristic_risk_score,
+    compute_synthetic_probability,
+)
+from app.settings_service import get_settings
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
@@ -105,22 +110,21 @@ async def create_transaction(
     creates alerts if high-risk, and broadcasts to connected WebSocket clients.
     """
     tx_id = payload.id or f"TX-{uuid.uuid4().hex[:8].upper()}"
-    
-    # Phase 1 heuristic rule checks (prior to Phase 2 ML model deployment)
-    risk_score = payload.risk_score or 5
-    if payload.amount > 10000:
-        risk_score = max(risk_score, 78)
-    if "Tor" in (payload.location or "") or "Unknown" in (payload.location or ""):
-        risk_score = max(risk_score, 88)
-    if payload.transaction_type in ("CRYPTO_EXCHANGE", "WIRE_TRANSFER") and payload.amount > 5000:
-        risk_score = max(risk_score, 82)
 
-    fraud_prob = round(risk_score / 100.0, 3)
-    
-    t_type_val = payload.transaction_type.value if hasattr(payload.transaction_type, "value") else str(payload.transaction_type)
-    tx_status = payload.status.value if hasattr(payload.status, "value") else (payload.status or TransactionStatus.APPROVED.value)
+    t_type_val = (
+        payload.transaction_type.value
+        if hasattr(payload.transaction_type, "value")
+        else str(payload.transaction_type)
+    )
+    risk_score = compute_heuristic_risk_score(
+        amount=payload.amount,
+        transaction_type=t_type_val,
+        location=payload.location,
+        base_score=payload.risk_score,
+    )
+    fraud_prob = compute_synthetic_probability(risk_score)
     cfg = get_settings(db)
-    tx_status, severity = decide(risk_score, cfg, tx_status)
+    tx_status, severity = classify_transaction(risk_score, cfg)
 
     new_tx = Transaction(
         id=tx_id,
@@ -149,7 +153,7 @@ async def create_transaction(
             transaction_id=tx_id,
             severity=severity,
             risk_score=risk_score,
-            reason=f"Real-time rule engine detected high risk activity (${payload.amount:,.2f} via {payload.transaction_type}).",
+            reason=f"Real-time rule engine detected high risk activity (${payload.amount:,.2f} via {t_type_val}).",
             status=AlertStatus.NEW.value,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),

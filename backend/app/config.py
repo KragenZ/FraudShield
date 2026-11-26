@@ -18,9 +18,10 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000"
     
-    # Live simulation
-    ENABLE_LIVE_SIMULATOR: bool = True
+    # Live simulation & startup migrations (opt-in for single-worker local dev)
+    ENABLE_LIVE_SIMULATOR: bool = False
     SIMULATION_INTERVAL_SECONDS: int = 4
+    AUTO_MIGRATE_ON_STARTUP: bool = False
 
     @property
     def cors_origins_list(self) -> List[str]:

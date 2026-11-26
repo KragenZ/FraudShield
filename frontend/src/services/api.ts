@@ -4,30 +4,65 @@ import {
   AlertListResponse,
   FraudAlert,
   AnalyticsSummary,
-  ModelPerformanceMetrics
+  ModelPerformanceMetrics,
+  SystemSettings,
+  SystemSettingsUpdate
 } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
+
+function formatApiError(detail: unknown, status: number): string {
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail;
+  }
+
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object') {
+          const errObj = item as { msg?: unknown; loc?: unknown };
+          const msg = typeof errObj.msg === 'string' ? errObj.msg : JSON.stringify(item);
+          if (Array.isArray(errObj.loc) && errObj.loc.length > 0) {
+            const locParts = errObj.loc.filter((part) => part !== 'body');
+            return locParts.length > 0 ? `${locParts.join('.')}: ${msg}` : msg;
+          }
+          return msg;
+        }
+        return String(item);
+      })
+      .filter(Boolean);
+
+    if (messages.length > 0) {
+      return messages.join('; ');
+    }
+  }
+
+  if (detail && typeof detail === 'object') {
+    return JSON.stringify(detail);
+  }
+
+  return `HTTP error! status: ${status}`;
+}
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   try {
     const response = await fetch(url, {
+      ...options,
       headers: {
-        'Content-Trans-Type': 'application/json',
         'Content-Type': 'application/json',
         ...(options?.headers || {})
-      },
-      ...options
+      }
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      const errorData = (await response.json().catch(() => ({}))) as { detail?: unknown };
+      throw new Error(formatApiError(errorData.detail, response.status));
     }
 
     return await response.json();
-  } catch (err: any) {
+  } catch (err) {
     console.error(`API Error on ${endpoint}:`, err);
     throw err;
   }
@@ -35,7 +70,7 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   // System Health
-  getHealth: () => request<any>('/health'),
+  getHealth: () => request<Record<string, unknown>>('/health'),
 
   // Analytics & Summary
   getAnalyticsSummary: () => request<AnalyticsSummary>('/analytics/summary'),
@@ -74,11 +109,12 @@ export const api = {
     }),
 
   // Alerts
-  getAlerts: (params?: { status?: string; severity?: string; limit?: number }) => {
+  getAlerts: (params?: { status?: string; severity?: string; limit?: number; page?: number }) => {
     const query = new URLSearchParams();
     if (params?.status && params.status !== 'ALL') query.append('status', params.status);
     if (params?.severity && params.severity !== 'ALL') query.append('severity', params.severity);
     if (params?.limit) query.append('limit', params.limit.toString());
+    if (params?.page) query.append('page', params.page.toString());
 
     const qs = query.toString();
     return request<AlertListResponse>(`/alerts${qs ? `?${qs}` : ''}`);
@@ -92,6 +128,15 @@ export const api = {
   ) =>
     request<FraudAlert>(`/alerts/${id}/status`, {
       method: 'PATCH',
+      body: JSON.stringify(data)
+    }),
+
+  // Settings
+  getSettings: () => request<SystemSettings>('/settings'),
+
+  updateSettings: (data: SystemSettingsUpdate) =>
+    request<SystemSettings>('/settings', {
+      method: 'PUT',
       body: JSON.stringify(data)
     }),
 

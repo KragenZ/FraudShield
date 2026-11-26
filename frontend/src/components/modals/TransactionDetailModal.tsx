@@ -1,21 +1,34 @@
 import React from 'react';
-import { X, Shield, Globe, Laptop, Clock, User, DollarSign, Activity } from 'lucide-react';
+import { X, Shield, Globe, User, Activity } from 'lucide-react';
 import { Transaction } from '../../types';
 import { RiskBadge } from '../common/RiskBadge';
 import { StatusBadge } from '../common/StatusBadge';
+import { useSettings } from '../../context/SettingsContext';
+import { getRiskBand } from '../../utils/riskPolicy';
 
 interface TransactionDetailModalProps {
   transaction: Transaction | null;
   onClose: () => void;
-  onReviewAlert?: (transactionId: string) => void;
 }
 
 export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   transaction,
-  onClose,
-  onReviewAlert
+  onClose
 }) => {
+  const { settings } = useSettings();
+
   if (!transaction) return null;
+
+  const band = getRiskBand(transaction.risk_score, settings);
+
+  let evaluationSummary: string;
+  if (band.tier === 'HIGH_RISK') {
+    evaluationSummary = `High risk pattern (score >= ${settings.block_threshold}): Urgent review required due to anomalous transfer value combined with cross-border routing or velocity flags.`;
+  } else if (band.tier === 'UNDER_REVIEW') {
+    evaluationSummary = `Medium risk pattern (score ${settings.flag_threshold}-${settings.block_threshold - 1}): Queued for human review due to elevated risk indicators.`;
+  } else {
+    evaluationSummary = `Low risk profile (score < ${settings.flag_threshold}): Normal activity matching expected customer velocity and recognized payment credentials.`;
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
@@ -41,6 +54,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
 
           <button
             onClick={onClose}
+            aria-label="Close transaction details"
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -143,23 +157,13 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
 
             <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
               <div
-                className={`h-full transition-all ${
-                  transaction.risk_score >= 80
-                    ? 'bg-rose-500'
-                    : transaction.risk_score >= 40
-                    ? 'bg-amber-500'
-                    : 'bg-emerald-500'
-                }`}
-                style={{ width: `${transaction.risk_score}%` }}
+                className={`h-full transition-all ${band.barColor}`}
+                style={{ width: `${Math.min(100, Math.max(0, transaction.risk_score))}%` }}
               />
             </div>
 
             <p className="mt-3 text-xs text-slate-400 leading-relaxed">
-              {transaction.risk_score >= 80
-                ? 'High risk pattern: Anomalous transfer value combined with cross-border routing or velocity flags.'
-                : transaction.risk_score >= 40
-                ? 'Moderate risk score: Triggered rule monitoring for elevated transaction size.'
-                : 'Standard risk profile: Activity matches expected customer velocity and recognized payment credentials.'}
+              {evaluationSummary}
             </p>
           </div>
         </div>
