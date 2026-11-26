@@ -1,8 +1,7 @@
-from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, case
 
 from app.database import get_db
 from app.models import Transaction, FraudAlert, TransactionStatus, AlertSeverity, AlertStatus
@@ -55,17 +54,35 @@ def get_analytics_summary(db: Session = Depends(get_db)):
 
     fraud_rate = round((fraud_tx_count / total_tx) * 100.0, 2) if total_tx > 0 else 0.0
 
-    # Group transactions by day for trends (last 7 days)
-    transactions = db.query(Transaction).order_by(Transaction.timestamp.asc()).all()
-    trend_dict = defaultdict(lambda: {"total": 0, "fraud": 0, "volume": 0.0, "fraud_vol": 0.0})
+    fraud_statuses = [TransactionStatus.FLAGGED.value, TransactionStatus.BLOCKED.value]
+    is_fraud = Transaction.status.in_(fraud_statuses)
 
-    for tx in transactions:
-        day_label = tx.timestamp.strftime("%b %d")
-        trend_dict[day_label]["total"] += 1
-        trend_dict[day_label]["volume"] += tx.amount
-        if tx.status in (TransactionStatus.FLAGGED.value, TransactionStatus.BLOCKED.value):
-            trend_dict[day_label]["fraud"] += 1
-            trend_dict[day_label]["fraud_vol"] += tx.amount
+    # Daily trends: aggregated in SQL (one row per calendar day)
+    day_col = func.date(Transaction.timestamp)
+    day_rows = (
+        db.query(
+            day_col.label("day"),
+            func.count(Transaction.id),
+            func.coalesce(func.sum(Transaction.amount), 0.0),
+            func.coalesce(func.sum(case((is_fraud, 1), else_=0)), 0),
+            func.coalesce(func.sum(case((is_fraud, Transaction.amount), else_=0.0)), 0.0),
+        )
+        .filter(Transaction.timestamp.isnot(None))
+        .group_by(day_col)
+        .order_by(day_col.asc())
+        .all()
+    )
+    # Merge days that share the same "%b %d" label (same behaviour as before), keeping chronological order.
+    trend_dict = {}
+    for day, cnt, vol, fcnt, fvol in day_rows:
+        if isinstance(day, str):
+            day = date.fromisoformat(day)
+        label = day.strftime("%b %d")
+        d = trend_dict.setdefault(label, {"total": 0, "fraud": 0, "volume": 0.0, "fraud_vol": 0.0})
+        d["total"] += int(cnt)
+        d["fraud"] += int(fcnt)
+        d["volume"] += float(vol)
+        d["fraud_vol"] += float(fvol)
 
     trends = [
         FraudTrendPoint(
@@ -78,32 +95,28 @@ def get_analytics_summary(db: Session = Depends(get_db)):
         for day, data in trend_dict.items()
     ]
 
-    # Type distribution
+    # Type distribution: single grouped query including fraud counts
     type_stats = (
         db.query(
             Transaction.transaction_type,
             func.count(Transaction.id),
-            func.sum(Transaction.amount)
+            func.sum(Transaction.amount),
+            func.coalesce(func.sum(case((is_fraud, 1), else_=0)), 0),
         )
         .group_by(Transaction.transaction_type)
+        .order_by(func.min(Transaction.timestamp).asc(), Transaction.transaction_type.asc())
         .all()
     )
 
-    type_distribution = []
-    for t_type, count, vol in type_stats:
-        fraud_in_type = db.query(Transaction).filter(
-            Transaction.transaction_type == t_type,
-            Transaction.status.in_([TransactionStatus.FLAGGED.value, TransactionStatus.BLOCKED.value])
-        ).count()
-        type_distribution.append(
-            TransactionTypeBreakdown(
-                type_name=t_type,
-                count=count,
-                volume=round(vol or 0.0, 2),
-                fraud_count=fraud_in_type
-            )
+    type_distribution = [
+        TransactionTypeBreakdown(
+            type_name=t_type,
+            count=count,
+            volume=round(vol or 0.0, 2),
+            fraud_count=int(fraud_in_type)
         )
-
+        for t_type, count, vol, fraud_in_type in type_stats
+    ]
     return {
         "stats": {
             "total_transactions": total_tx,

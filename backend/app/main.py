@@ -19,6 +19,9 @@ from app.api.transactions import router as transactions_router
 from app.api.alerts import router as alerts_router
 from app.api.analytics import router as analytics_router
 from app.api.model_metrics import router as model_router
+from app.api.settings import router as settings_router
+from app.db_migrate import run_migrations
+from app.settings_service import get_settings, decide
 
 # Background task for live stream simulation
 simulator_task = None
@@ -55,11 +58,12 @@ async def live_transaction_simulator():
                 if is_fraud:
                     risk_score = random.randint(78, 96)
                     amount = round(random.uniform(3500.0, 18500.0), 2)
-                    status = TransactionStatus.FLAGGED.value if risk_score < 88 else TransactionStatus.BLOCKED.value
                 else:
                     risk_score = random.randint(3, 30)
                     amount = round(random.uniform(15.0, 750.0), 2)
-                    status = TransactionStatus.APPROVED.value
+
+                cfg = get_settings(db)  # re-read every iteration so changes apply live
+                status, severity = decide(risk_score, cfg)
 
                 tx_id = f"TX-{uuid.uuid4().hex[:8].upper()}"
                 tx = Transaction(
@@ -82,8 +86,7 @@ async def live_transaction_simulator():
                 db.add(tx)
 
                 alert_obj = None
-                if is_fraud:
-                    severity = AlertSeverity.CRITICAL.value if risk_score >= 88 else AlertSeverity.HIGH.value
+                if severity is not None:
                     alert_obj = FraudAlert(
                         id=f"ALT-{uuid.uuid4().hex[:8].upper()}",
                         transaction_id=tx_id,
@@ -144,8 +147,8 @@ async def live_transaction_simulator():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create tables and seed initial data
-    Base.metadata.create_all(bind=engine)
+    # Startup: apply migrations (adopts verified legacy DBs) and seed initial data
+    run_migrations(engine)
     db = SessionLocal()
     try:
         seed_database(db, force=False)
@@ -184,6 +187,7 @@ app.include_router(transactions_router, prefix=settings.API_V1_STR)
 app.include_router(alerts_router, prefix=settings.API_V1_STR)
 app.include_router(analytics_router, prefix=settings.API_V1_STR)
 app.include_router(model_router, prefix=settings.API_V1_STR)
+app.include_router(settings_router, prefix=settings.API_V1_STR)
 
 @app.websocket("/ws/live")
 async def websocket_endpoint(websocket: WebSocket):

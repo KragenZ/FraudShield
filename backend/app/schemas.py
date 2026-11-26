@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt, StrictBool, ConfigDict, model_validator
 from app.models import TransactionType, TransactionStatus
 
 # Transaction Schemas
@@ -66,6 +66,44 @@ class AlertListResponse(BaseModel):
     total: int
     unresolved_count: int
     alerts: List[AlertResponse]
+    page: int = 1
+    page_size: int = 50
+    total_pages: int = 1
+
+# Settings Schemas
+class SettingsResponse(BaseModel):
+    flag_threshold: int
+    block_threshold: int
+    auto_block_high_risk: bool
+    email_alerts: bool
+    updated_at: Optional[datetime] = None
+    updated_by: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class SettingsUpdate(BaseModel):
+    """All fields optional (partial update); merged result is validated by the endpoint."""
+    flag_threshold: Optional[StrictInt] = Field(default=None, ge=0, le=100)
+    block_threshold: Optional[StrictInt] = Field(default=None, ge=0, le=100)
+    auto_block_high_risk: Optional[StrictBool] = None
+    email_alerts: Optional[StrictBool] = None
+    updated_by: Optional[str] = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def _thresholds_ordered(self):
+        provided = self.model_fields_set
+        if not provided:
+            raise ValueError("request body must contain at least one setting")
+        for name in ("flag_threshold", "block_threshold", "auto_block_high_risk", "email_alerts"):
+            if name in provided and getattr(self, name) is None:
+                raise ValueError(f"{name} must not be null")
+        if (
+            self.flag_threshold is not None
+            and self.block_threshold is not None
+            and self.flag_threshold >= self.block_threshold
+        ):
+            raise ValueError("flag_threshold must be less than block_threshold")
+        return self
 
 # Analytics Schemas
 class OverviewStats(BaseModel):

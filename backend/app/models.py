@@ -1,6 +1,7 @@
 from datetime import datetime
 from sqlalchemy import Column, String, Float, Integer, Boolean, DateTime, ForeignKey, Text, Enum
 from sqlalchemy.orm import relationship
+from sqlalchemy import true as sa_true, false as sa_false
 import enum
 from app.database import Base
 
@@ -92,3 +93,16 @@ class ModelPerformanceRecord(Base):
     evaluated_at = Column(DateTime, default=datetime.utcnow)
     notes = Column(Text, nullable=True)
     is_demo_data = Column(Boolean, default=True)
+
+
+class SystemSetting(Base):
+    """Single-row (id=1) persistent fraud-engine configuration."""
+    __tablename__ = "system_settings"
+
+    id = Column(Integer, primary_key=True)
+    flag_threshold = Column(Integer, nullable=False, default=50, server_default='50')
+    block_threshold = Column(Integer, nullable=False, default=85, server_default='85')
+    auto_block_high_risk = Column(Boolean, nullable=False, default=True, server_default=sa_true())
+    email_alerts = Column(Boolean, nullable=False, default=False, server_default=sa_false())
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_by = Column(String(128), nullable=True)

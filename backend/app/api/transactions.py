@@ -13,6 +13,7 @@ from app.schemas import (
     TransactionCreate
 )
 from app.ws_manager import ws_manager
+from app.settings_service import get_settings, decide
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
@@ -118,10 +119,8 @@ async def create_transaction(
     
     t_type_val = payload.transaction_type.value if hasattr(payload.transaction_type, "value") else str(payload.transaction_type)
     tx_status = payload.status.value if hasattr(payload.status, "value") else (payload.status or TransactionStatus.APPROVED.value)
-    if risk_score >= 85:
-        tx_status = TransactionStatus.BLOCKED.value if risk_score >= 92 else TransactionStatus.FLAGGED.value
-    elif risk_score >= 50:
-        tx_status = TransactionStatus.UNDER_REVIEW.value
+    cfg = get_settings(db)
+    tx_status, severity = decide(risk_score, cfg, tx_status)
 
     new_tx = Transaction(
         id=tx_id,
@@ -144,8 +143,7 @@ async def create_transaction(
 
     # If high or critical risk, automatically trigger alert
     alert_created = None
-    if risk_score >= 60:
-        severity = AlertSeverity.CRITICAL.value if risk_score >= 85 else AlertSeverity.HIGH.value
+    if severity is not None:
         alert_created = FraudAlert(
             id=f"ALT-{uuid.uuid4().hex[:8].upper()}",
             transaction_id=tx_id,

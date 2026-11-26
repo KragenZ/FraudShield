@@ -16,6 +16,7 @@ def get_alerts(
     status: Optional[str] = Query(None, description="Filter by status (NEW, IN_REVIEW, RESOLVED, FALSE_POSITIVE)"),
     severity: Optional[str] = Query(None, description="Filter by severity (LOW, MEDIUM, HIGH, CRITICAL)"),
     limit: int = Query(50, ge=1, le=100),
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
     db: Session = Depends(get_db)
 ):
     query = db.query(FraudAlert)
@@ -31,12 +32,20 @@ def get_alerts(
         FraudAlert.status.in_([AlertStatus.NEW.value, AlertStatus.IN_REVIEW.value])
     ).count()
 
-    alerts = query.order_by(desc(FraudAlert.created_at)).limit(limit).all()
+    alerts = (
+        query.order_by(desc(FraudAlert.created_at), desc(FraudAlert.id))
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
 
     return {
         "total": total,
         "unresolved_count": unresolved_count,
-        "alerts": alerts
+        "alerts": alerts,
+        "page": page,
+        "page_size": limit,
+        "total_pages": max(1, (total + limit - 1) // limit),
     }
 
 @router.get("/{alert_id}", response_model=AlertResponse)
