@@ -5,7 +5,7 @@ from app.settings_service import get_settings
 
 
 def tx_payload(**kw):
-    p = {"customer_id": "C1", "amount": 100.0, "transaction_type": "ONLINE_PURCHASE", "risk_score": 10}
+    p = {"customer_id": "C1", "amount": 100.0, "transaction_type": "ONLINE_PURCHASE"}
     p.update(kw)
     return p
 
@@ -136,43 +136,57 @@ def test_get_settings_never_raises_on_db_error(db, monkeypatch, caplog):
 
 
 def test_scoring_changes_with_thresholds(client, db):
-    r = client.post("/api/transactions", json=tx_payload(risk_score=25))
-    assert r.json()["status"] == "APPROVED"
+    # Default 50/85: normal $100 -> score 5 (APPROVED), $20,000 -> score 78 (UNDER_REVIEW)
+    r_low = client.post("/api/transactions", json=tx_payload())
+    assert r_low.json()["risk_score"] == 5
+    assert r_low.json()["status"] == "APPROVED"
     assert db.query(FraudAlert).count() == 0
 
-    client.put("/api/settings", json={"flag_threshold": 20, "block_threshold": 40})
-    r = client.post("/api/transactions", json=tx_payload(risk_score=25))
-    assert r.json()["status"] == "UNDER_REVIEW"
-    r = client.post("/api/transactions", json=tx_payload(risk_score=45))
-    assert r.json()["status"] == "FLAGGED"
+    # Lower block_threshold to 80, flag_threshold to 5:
+    # score 5 -> UNDER_REVIEW (MEDIUM), score 78 -> UNDER_REVIEW (MEDIUM), score 82 -> FLAGGED (CRITICAL)
+    client.put("/api/settings", json={"flag_threshold": 5, "block_threshold": 80})
+    r_5 = client.post("/api/transactions", json=tx_payload())
+    assert r_5.json()["risk_score"] == 5 and r_5.json()["status"] == "UNDER_REVIEW"
+
+    r_78 = client.post("/api/transactions", json=tx_payload(amount=20000.0))
+    assert r_78.json()["risk_score"] == 78 and r_78.json()["status"] == "UNDER_REVIEW"
+
+    r_82 = client.post("/api/transactions", json=tx_payload(amount=6000.0, transaction_type="CRYPTO_EXCHANGE"))
+    assert r_82.json()["risk_score"] == 82 and r_82.json()["status"] == "FLAGGED"
+
     sev = {a.risk_score: a.severity for a in db.query(FraudAlert).all()}
-    assert sev == {25: "MEDIUM", 45: "CRITICAL"}
+    assert sev == {5: "MEDIUM", 78: "MEDIUM", 82: "CRITICAL"}
 
 
 @pytest.mark.parametrize("auto_block,high_status", [(False, "FLAGGED"), (True, "BLOCKED")])
-def test_custom_threshold_exact_boundaries(client, db, auto_block, high_status):
+def test_custom_threshold_attribute_derived_scores(client, db, auto_block, high_status):
+    # Thresholds 78 / 82 separate real attribute-derived scores: 5 (APPROVED), 78 (UNDER_REVIEW), 82 & 88 (FLAGGED/BLOCKED)
     r = client.put(
         "/api/settings",
-        json={"flag_threshold": 30, "block_threshold": 70, "auto_block_high_risk": auto_block},
+        json={"flag_threshold": 78, "block_threshold": 82, "auto_block_high_risk": auto_block},
     )
     assert r.status_code == 200
 
-    res_29 = client.post("/api/transactions", json=tx_payload(risk_score=29)).json()
-    res_30 = client.post("/api/transactions", json=tx_payload(risk_score=30)).json()
-    res_69 = client.post("/api/transactions", json=tx_payload(risk_score=69)).json()
-    res_70 = client.post("/api/transactions", json=tx_payload(risk_score=70)).json()
+    res_5 = client.post("/api/transactions", json=tx_payload()).json()
+    res_78 = client.post("/api/transactions", json=tx_payload(amount=20000.0)).json()
+    res_82 = client.post(
+        "/api/transactions",
+        json=tx_payload(amount=6000.0, transaction_type="CRYPTO_EXCHANGE"),
+    ).json()
+    res_88 = client.post("/api/transactions", json=tx_payload(location="Tor exit node")).json()
 
-    assert res_29["status"] == "APPROVED"
-    assert res_30["status"] == "UNDER_REVIEW"
-    assert res_69["status"] == "UNDER_REVIEW"
-    assert res_70["status"] == high_status
+    assert res_5["risk_score"] == 5 and res_5["status"] == "APPROVED"
+    assert res_78["risk_score"] == 78 and res_78["status"] == "UNDER_REVIEW"
+    assert res_82["risk_score"] == 82 and res_82["status"] == high_status
+    assert res_88["risk_score"] == 88 and res_88["status"] == high_status
 
     alerts_by_score = {a.risk_score: a.severity for a in db.query(FraudAlert).all()}
-    assert alerts_by_score == {30: "MEDIUM", 69: "MEDIUM", 70: "CRITICAL"}
+    assert alerts_by_score == {78: "MEDIUM", 82: "CRITICAL", 88: "CRITICAL"}
 
 
 def test_auto_block_default_off_flags_high_risk(client, db):
-    r = client.post("/api/transactions", json=tx_payload(risk_score=95))
+    r = client.post("/api/transactions", json=tx_payload(location="Tor exit node"))
+    assert r.json()["risk_score"] == 88
     assert r.json()["status"] == "FLAGGED"
     assert db.query(FraudAlert).one().severity == "CRITICAL"
 
@@ -181,18 +195,22 @@ def test_auto_block_on_blocks_high_risk_only(client, db):
     r = client.put("/api/settings", json={"auto_block_high_risk": True})
     assert r.status_code == 200
 
-    for score in (50, 84):
-        res = client.post("/api/transactions", json=tx_payload(risk_score=score))
-        assert res.status_code == 201
-        assert res.json()["status"] == "UNDER_REVIEW"
+    # Scores 78 and 82 stay UNDER_REVIEW (below default block_threshold=85)
+    res_78 = client.post("/api/transactions", json=tx_payload(amount=20000.0))
+    assert res_78.status_code == 201 and res_78.json()["status"] == "UNDER_REVIEW"
 
-    for score in (85, 100):
-        res = client.post("/api/transactions", json=tx_payload(risk_score=score))
-        assert res.status_code == 201
-        assert res.json()["status"] == "BLOCKED"
+    res_82 = client.post(
+        "/api/transactions",
+        json=tx_payload(amount=6000.0, transaction_type="CRYPTO_EXCHANGE"),
+    )
+    assert res_82.status_code == 201 and res_82.json()["status"] == "UNDER_REVIEW"
+
+    # Score 88 (>= 85) gets BLOCKED when auto_block_high_risk=True
+    res_88 = client.post("/api/transactions", json=tx_payload(location="Tor exit node"))
+    assert res_88.status_code == 201 and res_88.json()["status"] == "BLOCKED"
 
     sev = {a.risk_score: a.severity for a in db.query(FraudAlert).all()}
-    assert sev == {50: "MEDIUM", 84: "MEDIUM", 85: "CRITICAL", 100: "CRITICAL"}
+    assert sev == {78: "MEDIUM", 82: "MEDIUM", 88: "CRITICAL"}
 
 
 def test_strict_types_and_null_rejected(client):

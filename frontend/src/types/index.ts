@@ -2,7 +2,7 @@ export type TransactionStatus = 'APPROVED' | 'FLAGGED' | 'BLOCKED' | 'UNDER_REVI
 
 export type AlertSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
-export type AlertStatus = 'NEW' | 'IN_REVIEW' | 'RESOLVED' | 'FALSE_POSITIVE';
+export type AlertStatus = 'NEW' | 'IN_REVIEW' | 'RESOLVED' | 'CONFIRMED_FRAUD' | 'FALSE_POSITIVE';
 
 export interface SystemSettings {
   flag_threshold: number;

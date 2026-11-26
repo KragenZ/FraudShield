@@ -181,3 +181,41 @@ def test_postgresql_advisory_lock_invoked_only_for_postgres():
     assert executed == []
     _acquire_migration_lock(_FakeConn("postgresql"))
     assert executed == [("postgresql", f"SELECT pg_advisory_xact_lock({PG_MIGRATION_LOCK_ID})")]
+
+
+def test_advisory_lock_runs_in_same_transaction_as_upgrade(monkeypatch):
+    eng = make_engine()
+    events = []
+    lock_conn = None
+    upgrade_conn = None
+
+    import app.db_migrate as db_migrate
+
+    orig_lock = db_migrate._acquire_migration_lock
+    orig_upgrade = db_migrate.command.upgrade
+
+    def _spy_lock(conn):
+        nonlocal lock_conn
+        lock_conn = conn
+        events.append(("lock", conn.in_transaction()))
+        return orig_lock(conn)
+
+    def _spy_upgrade(cfg, rev):
+        nonlocal upgrade_conn
+        upgrade_conn = cfg.attributes.get("connection")
+        events.append(("upgrade", upgrade_conn.in_transaction()))
+        return orig_upgrade(cfg, rev)
+
+    monkeypatch.setattr(db_migrate, "_acquire_migration_lock", _spy_lock)
+    monkeypatch.setattr(db_migrate.command, "upgrade", _spy_upgrade)
+
+    assert run_migrations(eng) == "created"
+    assert events == [("lock", True), ("upgrade", True)]
+    assert lock_conn is upgrade_conn
+
+
+def test_alembic_env_standalone_online_acquires_pg_advisory_lock():
+    env_source = (BACKEND_DIR / "alembic" / "env.py").read_text(encoding="utf-8")
+    assert "with connectable.begin() as conn:" in env_source
+    assert 'if conn.dialect.name == "postgresql":' in env_source
+    assert f"SELECT pg_advisory_xact_lock({PG_MIGRATION_LOCK_ID})" in env_source

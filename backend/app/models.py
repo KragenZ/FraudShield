@@ -29,6 +29,7 @@ class AlertStatus(str, enum.Enum):
     NEW = "NEW"
     IN_REVIEW = "IN_REVIEW"
     RESOLVED = "RESOLVED"
+    CONFIRMED_FRAUD = "CONFIRMED_FRAUD"
     FALSE_POSITIVE = "FALSE_POSITIVE"
 
 class Transaction(Base):

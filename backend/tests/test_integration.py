@@ -72,22 +72,18 @@ def test_settings_persisted_across_engine_restart(tmp_path):
         assert body["email_alerts"] is True
         assert body["updated_by"] == "integration-ops"
 
-        # Verify subsequent transaction scoring uses the persisted thresholds
+        # Verify subsequent transaction scoring uses the persisted thresholds (30/70, auto_block=True)
+        # Real attribute-derived scores: normal $50 -> 5, $20,000 -> 78 (>= 70 -> BLOCKED)
         tx_low = c2.post(
             "/api/transactions",
-            json={"customer_id": "C-1", "amount": 50.0, "transaction_type": "ONLINE_PURCHASE", "risk_score": 29},
-        )
-        tx_med = c2.post(
-            "/api/transactions",
-            json={"customer_id": "C-1", "amount": 50.0, "transaction_type": "ONLINE_PURCHASE", "risk_score": 30},
+            json={"customer_id": "C-1", "amount": 50.0, "transaction_type": "ONLINE_PURCHASE"},
         )
         tx_high = c2.post(
             "/api/transactions",
-            json={"customer_id": "C-1", "amount": 50.0, "transaction_type": "ONLINE_PURCHASE", "risk_score": 70},
+            json={"customer_id": "C-1", "amount": 20000.0, "transaction_type": "ONLINE_PURCHASE"},
         )
-        assert tx_low.status_code == 201 and tx_low.json()["status"] == "APPROVED"
-        assert tx_med.status_code == 201 and tx_med.json()["status"] == "UNDER_REVIEW"
-        assert tx_high.status_code == 201 and tx_high.json()["status"] == "BLOCKED"
+        assert tx_low.status_code == 201 and tx_low.json()["risk_score"] == 5 and tx_low.json()["status"] == "APPROVED"
+        assert tx_high.status_code == 201 and tx_high.json()["risk_score"] == 78 and tx_high.json()["status"] == "BLOCKED"
     finally:
         app.dependency_overrides.clear()
         eng2.dispose()
@@ -118,18 +114,18 @@ def test_end_to_end_api_regression_suite(client, db):
     assert s_get.status_code == 200
     assert s_get.json()["auto_block_high_risk"] is False
 
-    # 3. Transactions ingest + query + detail
+    # 3. Transactions ingest + query + detail (using real attribute-derived scores: 5, 78, 88)
     r_app = client.post(
         "/api/transactions",
-        json={"customer_id": "CUST-1", "amount": 45.0, "transaction_type": "MERCHANT_PAYMENT", "risk_score": 10},
+        json={"customer_id": "CUST-1", "amount": 45.0, "transaction_type": "MERCHANT_PAYMENT"},
     )
     r_rev = client.post(
         "/api/transactions",
-        json={"customer_id": "CUST-2", "amount": 250.0, "transaction_type": "P2P_TRANSFER", "risk_score": 60},
+        json={"customer_id": "CUST-2", "amount": 15000.0, "transaction_type": "P2P_TRANSFER"},
     )
     r_flg = client.post(
         "/api/transactions",
-        json={"customer_id": "CUST-3", "amount": 900.0, "transaction_type": "WIRE_TRANSFER", "risk_score": 90},
+        json={"customer_id": "CUST-3", "amount": 900.0, "transaction_type": "WIRE_TRANSFER", "location": "Tor exit node"},
     )
     assert r_app.status_code == 201 and r_app.json()["status"] == "APPROVED"
     assert r_rev.status_code == 201 and r_rev.json()["status"] == "UNDER_REVIEW"
@@ -196,17 +192,51 @@ def test_websocket_live_feed_ping_and_broadcast(client):
 
         res = client.post(
             "/api/transactions",
-            json={"customer_id": "WS-1", "amount": 500.0, "transaction_type": "ONLINE_PURCHASE", "risk_score": 92},
+            json={
+                "customer_id": "WS-1",
+                "amount": 500.0,
+                "transaction_type": "ONLINE_PURCHASE",
+                "merchant": "Shadow Exchange",
+                "location": "Tor exit node",
+                "ip_address": "185.220.101.5",
+                "device_type": "Linux Desktop",
+            },
         )
         assert res.status_code == 201
         tx_id = res.json()["id"]
 
         tx_evt = ws.receive_json()
         assert tx_evt["event_type"] == "NEW_TRANSACTION"
-        assert tx_evt["data"]["id"] == tx_id
-        assert tx_evt["data"]["status"] == "FLAGGED"
+        tx_data = tx_evt["data"]
+        assert tx_data["id"] == tx_id
+        assert tx_data["status"] == "FLAGGED"
+        assert tx_data["merchant"] == "Shadow Exchange"
+        assert tx_data["location"] == "Tor exit node"
+        assert tx_data["ip_address"] == "185.220.101.5"
+        assert tx_data["device_type"] == "Linux Desktop"
+        assert tx_data["is_demo_data"] is True
 
         alert_evt = ws.receive_json()
         assert alert_evt["event_type"] == "NEW_ALERT"
-        assert alert_evt["data"]["transaction_id"] == tx_id
-        assert alert_evt["data"]["severity"] == "CRITICAL"
+        alert_data = alert_evt["data"]
+        assert alert_data["transaction_id"] == tx_id
+        assert alert_data["severity"] == "CRITICAL"
+        assert alert_data["is_demo_data"] is True
+
+        # Resolving alert broadcasts enriched ALERT_UPDATED payload
+        patch_res = client.patch(
+            f"/api/alerts/{alert_data['id']}/status",
+            json={"status": "FALSE_POSITIVE", "reviewed_by": "WS Analyst"},
+        )
+        assert patch_res.status_code == 200
+
+        upd_evt = ws.receive_json()
+        assert upd_evt["event_type"] == "ALERT_UPDATED"
+        upd_data = upd_evt["data"]
+        assert upd_data["id"] == alert_data["id"]
+        assert upd_data["transaction_id"] == tx_id
+        assert upd_data["status"] == "FALSE_POSITIVE"
+        assert upd_data["previous_alert_status"] == "NEW"
+        assert upd_data["transaction_status"] == "APPROVED"
+        assert upd_data["previous_transaction_status"] == "FLAGGED"
+        assert upd_data["is_demo_data"] is True

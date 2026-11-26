@@ -2,7 +2,7 @@
 
 A real-time financial fraud detection and risk telemetry platform inspired by the design aesthetics of Stripe, Linear, and modern cybersecurity command centers.
 
-FraudShield AI ingests high-velocity financial transactions, executes risk heuristics, computes probabilistic risk indices (0–100), and broadcasts security alerts over WebSockets directly to an interactive fintech operations console.
+FraudShield AI ingests high-velocity financial transactions, executes risk heuristics, computes Phase 1 heuristic risk indices (0–100), and broadcasts security alerts over WebSockets directly to an interactive fintech operations console.
 
 ---
 
@@ -12,7 +12,7 @@ FraudShield AI ingests high-velocity financial transactions, executes risk heuri
 - **Transaction Audit Trail**: Full search, filtering by channel (Wire, Crypto, P2P, ATM, Card), risk score ranges, and paginated transaction inspection.
 - **Incident Queue & Triage**: Triage suspicious transactions, assign severity levels (Critical, High, Medium, Low), record resolution notes, and resolve incidents.
 - **Fintech Risk Analytics**: Historical fraud volume trends, temporal attack surfaces, channel breakdown, and detection ratios.
-- **Model Performance Benchmark Harness**: Pre-configured evaluation metrics (Precision, Recall, F1, PR-AUC, ROC-AUC) and an interactive Confusion Matrix, prepared for Phase 2 ML training.
+- **Model Performance Benchmark Harness**: Static pre-training demo/baseline telemetry (Precision, Recall, F1, PR-AUC, ROC-AUC, and an interactive Confusion Matrix) prepared for Phase 2 ML training — **no trained or validated ML model is active yet**.
 - **Test Transaction Injector**: In-app modal to inject test transactions (legitimate or fraudulent attack scenarios) and observe live risk scoring and WebSocket event propagation.
 
 ---
@@ -20,7 +20,7 @@ FraudShield AI ingests high-velocity financial transactions, executes risk heuri
 ## 🏗️ Technology Architecture
 
 ### Frontend
-- **Framework**: React 18 + TypeScript + Vite
+- **Framework**: React 19 + TypeScript + Vite
 - **Styling**: Tailwind CSS (Dark Navy Fintech palette `#070A13`, `#0E1524`), Glassmorphism panels
 - **Visualizations**: Recharts (Area charts, Bar charts, Donut charts)
 - **Icons**: Lucide Icons
@@ -176,7 +176,7 @@ Fraud Detector/
 
 ## 🧪 Testing Live Features
 
-1. **Watch Live Stream**: The backend background generator broadcasts simulated transactions and security alerts directly to the dashboard over WebSockets every few seconds.
+1. **Watch Live Stream (Opt-In Simulation)**: Live synthetic traffic is opt-in — run `python run_simulator.py` in a separate terminal (or set `ENABLE_LIVE_SIMULATOR=true` in `backend/.env` for single-worker local dev) to broadcast simulated transactions and security alerts to the dashboard over WebSockets.
 2. **Inject Test Transaction**: Click the **"Inject Test Tx"** button in the top header. You can pick presets:
    - **High Risk / Fraud**: Triggers an alert (e.g. $34,500.00 Crypto Exchange via Tor proxy) and pushes to the Incident Queue.
    - **Legitimate**: A routine $42.50 Amazon Cloud charge approved with low risk score.

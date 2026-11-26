@@ -45,7 +45,9 @@ def run_migrations_online() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
-    with connectable.connect() as conn:
+    with connectable.begin() as conn:
+        if conn.dialect.name == "postgresql":
+            conn.exec_driver_sql("SELECT pg_advisory_xact_lock(73829104)")
         context.configure(connection=conn, target_metadata=target_metadata, render_as_batch=True)
         with context.begin_transaction():
             context.run_migrations()

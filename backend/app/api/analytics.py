@@ -66,7 +66,11 @@ def get_analytics_summary(db: Session = Depends(get_db)):
     ).count()
 
     resolved_alerts = db.query(FraudAlert).filter(
-        FraudAlert.status == AlertStatus.RESOLVED.value
+        FraudAlert.status.in_([
+            AlertStatus.RESOLVED.value,
+            AlertStatus.CONFIRMED_FRAUD.value,
+            AlertStatus.FALSE_POSITIVE.value,
+        ])
     ).count()
 
     def _rate(cnt: int) -> float:

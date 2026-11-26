@@ -13,8 +13,27 @@ import { NewTransactionModal } from './components/modals/NewTransactionModal';
 import { SettingsProvider } from './context/SettingsContext';
 import { api } from './services/api';
 import { liveSocket } from './services/websocket';
-import { applyLiveTransactionToAnalytics } from './utils/analyticsCounters';
-import { AnalyticsSummary, Transaction, FraudAlert } from './types';
+import {
+  applyLiveTransactionToAnalytics,
+  applyTransactionStatusTransitionToAnalytics
+} from './utils/analyticsCounters';
+import {
+  AlertStatus,
+  AnalyticsSummary,
+  FraudAlert,
+  Transaction,
+  TransactionStatus
+} from './types';
+
+interface AlertUpdatedPayload extends Partial<FraudAlert> {
+  id: string;
+  previous_alert_status?: AlertStatus;
+  transaction_status?: TransactionStatus;
+  previous_transaction_status?: TransactionStatus;
+}
+
+const isUnresolvedAlertStatus = (status?: string): boolean =>
+  status === 'NEW' || status === 'IN_REVIEW';
 
 const AppContent: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<NavigationTab>('overview');
@@ -82,13 +101,56 @@ const AppContent: React.FC = () => {
         setRecentAlerts((prev) => [newAlert, ...prev.slice(0, 19)]);
         setUnresolvedAlertCount((prev) => prev + 1);
       } else if (event.event_type === 'ALERT_UPDATED') {
-        const updated = event.data as Partial<FraudAlert> & { id: string };
+        const updated = event.data as AlertUpdatedPayload;
         setRecentAlerts((prev) =>
-          prev.map((al) => (al.id === updated.id ? { ...al, ...updated } : al))
+          prev.map((al) => {
+            if (al.id !== updated.id) return al;
+            return {
+              ...al,
+              ...updated,
+              transaction:
+                al.transaction && updated.transaction_status
+                  ? { ...al.transaction, status: updated.transaction_status }
+                  : al.transaction
+            };
+          })
         );
-        if (updated.status === 'RESOLVED' || updated.status === 'FALSE_POSITIVE') {
+
+        if (updated.transaction_id && updated.transaction_status) {
+          const nextTxStatus = updated.transaction_status;
+          setRecentTransactions((prev) =>
+            prev.map((tx) =>
+              tx.id === updated.transaction_id ? { ...tx, status: nextTxStatus } : tx
+            )
+          );
+          setSelectedTransaction((prev) =>
+            prev && prev.id === updated.transaction_id
+              ? { ...prev, status: nextTxStatus }
+              : prev
+          );
+        }
+
+        setAnalytics((prev) =>
+          applyTransactionStatusTransitionToAnalytics(
+            prev,
+            updated.previous_transaction_status,
+            updated.transaction_status
+          )
+        );
+
+        if (updated.previous_alert_status && updated.status) {
+          const wasUnresolved = isUnresolvedAlertStatus(updated.previous_alert_status);
+          const isNowUnresolved = isUnresolvedAlertStatus(updated.status);
+          if (wasUnresolved && !isNowUnresolved) {
+            setUnresolvedAlertCount((prev) => Math.max(0, prev - 1));
+          } else if (!wasUnresolved && isNowUnresolved) {
+            setUnresolvedAlertCount((prev) => prev + 1);
+          }
+        } else if (updated.status && !isUnresolvedAlertStatus(updated.status)) {
           setUnresolvedAlertCount((prev) => Math.max(0, prev - 1));
         }
+
+        setRefreshTrigger((prev) => prev + 1);
       }
     });
 
@@ -108,8 +170,22 @@ const AppContent: React.FC = () => {
     alertId: string,
     data: { status: string; reviewed_by: string; resolution_notes: string }
   ) => {
-    await api.updateAlertStatus(alertId, data);
-    setIsLoading(true);
+    const updatedAlert = await api.updateAlertStatus(alertId, data);
+
+    setRecentAlerts((prev) =>
+      prev.map((al) => (al.id === updatedAlert.id ? { ...al, ...updatedAlert } : al))
+    );
+
+    if (updatedAlert.transaction) {
+      const updatedTx = updatedAlert.transaction;
+      setRecentTransactions((prev) =>
+        prev.map((tx) => (tx.id === updatedTx.id ? { ...tx, ...updatedTx } : tx))
+      );
+      setSelectedTransaction((prev) =>
+        prev && prev.id === updatedTx.id ? { ...prev, ...updatedTx } : prev
+      );
+    }
+
     setRefreshTrigger((prev) => prev + 1);
   };
 

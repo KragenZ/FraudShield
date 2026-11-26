@@ -113,7 +113,39 @@ export const AlertReviewModal: React.FC<AlertReviewModalProps> = ({
             <label className="block text-xs font-medium uppercase tracking-wider text-slate-300 mb-2">
               Resolution Disposition
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedStatus('CONFIRMED_FRAUD')}
+                className={`p-3 rounded-lg border text-left flex flex-col justify-between transition-all ${
+                  selectedStatus === 'CONFIRMED_FRAUD'
+                    ? 'bg-rose-950/40 border-rose-500/50 text-rose-300 shadow-sm shadow-rose-950/30'
+                    : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-300 hover:bg-slate-800/50'
+                }`}
+              >
+                <ShieldAlert className="w-4 h-4 mb-1 text-rose-400" />
+                <span className="text-xs font-medium">Confirmed Fraud</span>
+                <span className="text-[10px] text-slate-400 mt-0.5">
+                  Flag transaction (no auto-block)
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedStatus('FALSE_POSITIVE')}
+                className={`p-3 rounded-lg border text-left flex flex-col justify-between transition-all ${
+                  selectedStatus === 'FALSE_POSITIVE'
+                    ? 'bg-slate-800/90 border-slate-600/60 text-slate-200'
+                    : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-300 hover:bg-slate-800/50'
+                }`}
+              >
+                <XCircle className="w-4 h-4 mb-1 text-slate-400" />
+                <span className="text-xs font-medium">False Positive</span>
+                <span className="text-[10px] text-slate-400 mt-0.5">
+                  Restore transaction to Approved
+                </span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setSelectedStatus('RESOLVED')}
@@ -125,7 +157,7 @@ export const AlertReviewModal: React.FC<AlertReviewModalProps> = ({
               >
                 <CheckCircle2 className="w-4 h-4 mb-1 text-teal-400" />
                 <span className="text-xs font-medium">Mark Resolved</span>
-                <span className="text-[10px] text-slate-400 mt-0.5">Action verified</span>
+                <span className="text-[10px] text-slate-400 mt-0.5">Close incident</span>
               </button>
 
               <button
@@ -140,20 +172,6 @@ export const AlertReviewModal: React.FC<AlertReviewModalProps> = ({
                 <Clock className="w-4 h-4 mb-1 text-indigo-400" />
                 <span className="text-xs font-medium">In Review</span>
                 <span className="text-[10px] text-slate-400 mt-0.5">Escalate deeper</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSelectedStatus('FALSE_POSITIVE')}
-                className={`p-3 rounded-lg border text-left flex flex-col justify-between transition-all ${
-                  selectedStatus === 'FALSE_POSITIVE'
-                    ? 'bg-slate-800/90 border-slate-600/60 text-slate-200'
-                    : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-300 hover:bg-slate-800/50'
-                }`}
-              >
-                <XCircle className="w-4 h-4 mb-1 text-slate-400" />
-                <span className="text-xs font-medium">False Positive</span>
-                <span className="text-[10px] text-slate-400 mt-0.5">Legit user act</span>
               </button>
             </div>
           </div>

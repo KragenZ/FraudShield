@@ -63,12 +63,12 @@ export const ModelPerformancePage: React.FC = () => {
           <Info className="w-5 h-5" />
         </div>
         <div className="flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h4 className="text-sm font-semibold text-white">
               Phase 1 Evaluation Harness: Pre-Training Benchmark Baseline
             </h4>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
-              AUDIT READY
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+              DEMO BASELINE
             </span>
           </div>
           <p className="text-xs text-slate-300 mt-1 leading-relaxed">
@@ -92,17 +92,17 @@ export const ModelPerformancePage: React.FC = () => {
               <span className="text-xs font-mono text-slate-400">({metrics.model_version})</span>
             </div>
             <p className="text-xs text-slate-400 font-mono">
-              Evaluated on holdout validation slice ({new Date(metrics.evaluated_at).toLocaleDateString()})
+              Static pre-training target benchmark (Demo Telemetry — no trained ML model active)
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs font-mono text-emerald-400 px-2.5 py-1 rounded-full bg-emerald-950/40 border border-emerald-500/30">
-            Accuracy: {accuracy}%
+            Target benchmark — Accuracy: {accuracy}%
           </span>
           <span className="text-xs font-mono text-blue-400 px-2.5 py-1 rounded-full bg-blue-950/40 border border-blue-500/30">
-            ROC-AUC: {(metrics.roc_auc * 100).toFixed(1)}%
+            Target benchmark — ROC-AUC: {(metrics.roc_auc * 100).toFixed(1)}%
           </span>
         </div>
       </div>
@@ -175,7 +175,7 @@ export const ModelPerformancePage: React.FC = () => {
               Confusion Matrix
             </h3>
             <p className="text-xs text-slate-400">
-              Evaluated on {totalPredictions.toLocaleString()} classified transactions
+              Illustrative baseline confusion matrix ({totalPredictions.toLocaleString()} synthetic target samples — Demo Telemetry)
             </p>
           </div>
         </div>

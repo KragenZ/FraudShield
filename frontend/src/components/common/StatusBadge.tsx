@@ -29,6 +29,8 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
     styles = 'bg-indigo-950/40 text-indigo-300 border-indigo-500/30';
   } else if (normalized === 'RESOLVED') {
     styles = 'bg-teal-950/40 text-teal-300 border-teal-500/30';
+  } else if (normalized === 'CONFIRMED_FRAUD') {
+    styles = 'bg-rose-950/50 text-rose-300 border-rose-500/40 font-semibold';
   } else if (normalized === 'FALSE_POSITIVE') {
     styles = 'bg-slate-800/80 text-slate-400 border-slate-600/40';
   }

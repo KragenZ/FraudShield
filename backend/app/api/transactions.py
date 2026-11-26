@@ -6,13 +6,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, desc
 
 from app.database import get_db
-from app.models import Transaction, FraudAlert, AlertStatus
+from app.models import Transaction, FraudAlert, AlertSeverity, AlertStatus
 from app.schemas import (
     TransactionResponse, 
     TransactionListResponse, 
     TransactionCreate
 )
-from app.ws_manager import ws_manager
+from app.ws_manager import build_alert_event, build_transaction_event, ws_manager
 from app.scoring import (
     classify_transaction,
     compute_heuristic_risk_score,
@@ -120,7 +120,6 @@ async def create_transaction(
         amount=payload.amount,
         transaction_type=t_type_val,
         location=payload.location,
-        base_score=payload.risk_score,
     )
     fraud_prob = compute_synthetic_probability(risk_score)
     cfg = get_settings(db)
@@ -145,15 +144,25 @@ async def create_transaction(
     )
     db.add(new_tx)
 
-    # If high or critical risk, automatically trigger alert
+    # If medium or critical risk, automatically trigger alert
     alert_created = None
     if severity is not None:
+        if severity == AlertSeverity.CRITICAL.value:
+            reason = (
+                f"Real-time rule engine detected high-risk activity requiring urgent review "
+                f"(${payload.amount:,.2f} via {t_type_val})."
+            )
+        else:
+            reason = (
+                f"Real-time rule engine detected medium-risk activity requiring review "
+                f"(${payload.amount:,.2f} via {t_type_val})."
+            )
         alert_created = FraudAlert(
             id=f"ALT-{uuid.uuid4().hex[:8].upper()}",
             transaction_id=tx_id,
             severity=severity,
             risk_score=risk_score,
-            reason=f"Real-time rule engine detected high risk activity (${payload.amount:,.2f} via {t_type_val}).",
+            reason=reason,
             status=AlertStatus.NEW.value,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
@@ -163,40 +172,13 @@ async def create_transaction(
 
     db.commit()
     db.refresh(new_tx)
+    if alert_created is not None:
+        db.refresh(alert_created)
 
     # Broadcast event via WebSocket
-    event_data = {
-        "event_type": "NEW_TRANSACTION",
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "data": {
-            "id": new_tx.id,
-            "customer_id": new_tx.customer_id,
-            "customer_name": new_tx.customer_name,
-            "amount": new_tx.amount,
-            "currency": new_tx.currency,
-            "transaction_type": new_tx.transaction_type,
-            "risk_score": new_tx.risk_score,
-            "fraud_probability": new_tx.fraud_probability,
-            "status": new_tx.status,
-            "timestamp": new_tx.timestamp.isoformat() + "Z"
-        }
-    }
-    await ws_manager.broadcast(event_data)
+    await ws_manager.broadcast(build_transaction_event(new_tx))
 
     if alert_created:
-        alert_event = {
-            "event_type": "NEW_ALERT",
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "data": {
-                "id": alert_created.id,
-                "transaction_id": alert_created.transaction_id,
-                "severity": alert_created.severity,
-                "risk_score": alert_created.risk_score,
-                "reason": alert_created.reason,
-                "status": alert_created.status,
-                "created_at": alert_created.created_at.isoformat() + "Z"
-            }
-        }
-        await ws_manager.broadcast(alert_event)
+        await ws_manager.broadcast(build_alert_event(alert_created))
 
     return new_tx

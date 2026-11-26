@@ -94,3 +94,57 @@ def test_patch_status_and_invalid(client, db):
 
     r_bad = client.patch("/api/alerts/ALT-000/status", json={"status": "BOGUS"})
     assert r_bad.status_code == 400
+
+
+def test_alert_resolution_updates_linked_transaction_and_analytics(client, db):
+    tx_fp = make_tx(db, id="TX-FP", status="FLAGGED", risk=88)
+    a_fp = make_alert(db, tx_fp.id, aid="ALT-FP", severity="CRITICAL", status="NEW", risk=88)
+
+    tx_cf = make_tx(db, id="TX-CF", status="UNDER_REVIEW", risk=78)
+    a_cf = make_alert(db, tx_cf.id, aid="ALT-CF", severity="MEDIUM", status="NEW", risk=78)
+
+    tx_blk = make_tx(db, id="TX-BLK", status="BLOCKED", risk=92)
+    a_blk = make_alert(db, tx_blk.id, aid="ALT-BLK", severity="CRITICAL", status="NEW", risk=92)
+
+    # 1. FALSE_POSITIVE -> linked transaction becomes APPROVED
+    r1 = client.patch(f"/api/alerts/{a_fp.id}/status", json={"status": "FALSE_POSITIVE"})
+    assert r1.status_code == 200
+    assert r1.json()["status"] == "FALSE_POSITIVE"
+    assert client.get(f"/api/transactions/{tx_fp.id}").json()["status"] == "APPROVED"
+
+    # 2. CONFIRMED_FRAUD on UNDER_REVIEW -> linked transaction becomes FLAGGED (NOT BLOCKED!)
+    r2 = client.patch(f"/api/alerts/{a_cf.id}/status", json={"status": "CONFIRMED_FRAUD"})
+    assert r2.status_code == 200
+    assert r2.json()["status"] == "CONFIRMED_FRAUD"
+    assert client.get(f"/api/transactions/{tx_cf.id}").json()["status"] == "FLAGGED"
+
+    # 3. CONFIRMED_FRAUD on already-BLOCKED -> preserves BLOCKED
+    r3 = client.patch(f"/api/alerts/{a_blk.id}/status", json={"status": "CONFIRMED_FRAUD"})
+    assert r3.status_code == 200
+    assert r3.json()["status"] == "CONFIRMED_FRAUD"
+    assert client.get(f"/api/transactions/{tx_blk.id}").json()["status"] == "BLOCKED"
+
+    # 4. Analytics summary immediately reflects updated transaction statuses and resolved_alerts count
+    stats = client.get("/api/analytics/summary").json()["stats"]
+    assert stats["total_transactions"] == 3
+    assert stats["approved_count"] == 1
+    assert stats["under_review_count"] == 0
+    assert stats["flagged_count"] == 1
+    assert stats["blocked_count"] == 1
+    assert stats["fraud_detected"] == 2
+    assert stats["resolved_alerts"] == 3
+    assert client.get("/api/alerts").json()["unresolved_count"] == 0
+
+
+def test_in_review_and_resolved_transaction_transitions(client, db):
+    tx_app = make_tx(db, id="TX-APP", status="APPROVED", risk=20)
+    a_app = make_alert(db, tx_app.id, aid="ALT-APP", severity="MEDIUM", status="NEW", risk=20)
+
+    r_rev = client.patch(f"/api/alerts/{a_app.id}/status", json={"status": "IN_REVIEW"})
+    assert r_rev.status_code == 200
+    assert client.get(f"/api/transactions/{tx_app.id}").json()["status"] == "UNDER_REVIEW"
+
+    # RESOLVED leaves transaction status unchanged (stays UNDER_REVIEW)
+    r_res = client.patch(f"/api/alerts/{a_app.id}/status", json={"status": "RESOLVED"})
+    assert r_res.status_code == 200
+    assert client.get(f"/api/transactions/{tx_app.id}").json()["status"] == "UNDER_REVIEW"

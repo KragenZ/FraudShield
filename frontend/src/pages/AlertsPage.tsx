@@ -112,8 +112,8 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({
         </div>
 
         {/* Status quick tabs */}
-        <div className="flex items-center gap-1.5 p-1 rounded-lg bg-[#0B0F19] border border-slate-800">
-          {['ALL', 'NEW', 'IN_REVIEW', 'RESOLVED'].map((st) => (
+        <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-lg bg-[#0B0F19] border border-slate-800">
+          {['ALL', 'NEW', 'IN_REVIEW', 'CONFIRMED_FRAUD', 'FALSE_POSITIVE', 'RESOLVED'].map((st) => (
             <button
               key={st}
               onClick={() => handleStatusChange(st)}

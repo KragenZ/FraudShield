@@ -13,7 +13,7 @@ from app.database import SessionLocal
 from app.models import AlertStatus, FraudAlert, Transaction, TransactionType
 from app.scoring import classify_transaction, compute_synthetic_probability
 from app.settings_service import get_settings
-from app.ws_manager import ws_manager
+from app.ws_manager import build_alert_event, build_transaction_event, ws_manager
 
 logger = logging.getLogger("fraudshield.simulator")
 
@@ -122,41 +122,10 @@ async def live_transaction_simulator() -> None:
             finally:
                 db.close()
 
-            await ws_manager.broadcast({
-                "event_type": "NEW_TRANSACTION",
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "data": {
-                    "id": tx.id,
-                    "customer_id": tx.customer_id,
-                    "customer_name": tx.customer_name,
-                    "amount": tx.amount,
-                    "currency": tx.currency,
-                    "transaction_type": tx.transaction_type,
-                    "risk_score": tx.risk_score,
-                    "fraud_probability": tx.fraud_probability,
-                    "status": tx.status,
-                    "merchant": tx.merchant,
-                    "location": tx.location,
-                    "timestamp": tx.timestamp.isoformat() + "Z",
-                    "is_demo_data": True,
-                },
-            })
+            await ws_manager.broadcast(build_transaction_event(tx))
 
             if alert_obj is not None:
-                await ws_manager.broadcast({
-                    "event_type": "NEW_ALERT",
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                    "data": {
-                        "id": alert_obj.id,
-                        "transaction_id": alert_obj.transaction_id,
-                        "severity": alert_obj.severity,
-                        "risk_score": alert_obj.risk_score,
-                        "reason": alert_obj.reason,
-                        "status": alert_obj.status,
-                        "created_at": alert_obj.created_at.isoformat() + "Z",
-                        "is_demo_data": True,
-                    },
-                })
+                await ws_manager.broadcast(build_alert_event(alert_obj))
         except asyncio.CancelledError:
             break
         except Exception as exc:  # noqa: BLE001

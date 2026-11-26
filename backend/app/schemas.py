@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, List
 from pydantic import BaseModel, Field, StrictInt, StrictBool, ConfigDict, model_validator
-from app.models import TransactionType, TransactionStatus
+from app.models import TransactionType
 
 # Transaction Schemas
 class TransactionBase(BaseModel):
@@ -17,9 +17,6 @@ class TransactionBase(BaseModel):
 
 class TransactionCreate(TransactionBase):
     id: Optional[str] = None
-    fraud_probability: Optional[float] = Field(default=0.0, ge=0.0, le=1.0)
-    risk_score: Optional[int] = Field(default=None, ge=0, le=100)
-    status: Optional[TransactionStatus] = None
 
 class TransactionResponse(TransactionBase):
     id: str
@@ -58,7 +55,7 @@ class AlertResponse(BaseModel):
         from_attributes = True
 
 class AlertUpdateStatus(BaseModel):
-    status: str = Field(..., description="IN_REVIEW, RESOLVED, FALSE_POSITIVE")
+    status: str = Field(..., description="IN_REVIEW, RESOLVED, CONFIRMED_FRAUD, FALSE_POSITIVE")
     reviewed_by: Optional[str] = "Security Admin"
     resolution_notes: Optional[str] = None
 
