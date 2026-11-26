@@ -24,9 +24,13 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins_list(self) -> List[str]:
+        default_origins = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"]
         if not self.CORS_ORIGINS:
-            return ["*"]
-        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+            return default_origins
+        origins = [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+        # Disallow wildcards when credentials are enabled to enforce strict CORS boundaries
+        filtered = [o for o in origins if o != "*"]
+        return filtered if filtered else default_origins
 
     class Config:
         env_file = ".env"

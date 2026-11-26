@@ -1,14 +1,15 @@
 from datetime import datetime
 from typing import Optional, List
 from pydantic import BaseModel, Field
+from app.models import TransactionType, TransactionStatus
 
 # Transaction Schemas
 class TransactionBase(BaseModel):
     customer_id: str
     customer_name: Optional[str] = None
-    amount: float = Field(..., gt=0)
+    amount: float = Field(..., gt=0, description="Transaction amount (must be positive)")
     currency: str = "USD"
-    transaction_type: str
+    transaction_type: TransactionType
     merchant: Optional[str] = None
     location: Optional[str] = None
     ip_address: Optional[str] = None
@@ -16,9 +17,9 @@ class TransactionBase(BaseModel):
 
 class TransactionCreate(TransactionBase):
     id: Optional[str] = None
-    fraud_probability: Optional[float] = 0.0
-    risk_score: Optional[int] = 0
-    status: Optional[str] = "APPROVED"
+    fraud_probability: Optional[float] = Field(default=0.0, ge=0.0, le=1.0)
+    risk_score: Optional[int] = Field(default=0, ge=0, le=100)
+    status: Optional[TransactionStatus] = TransactionStatus.APPROVED
 
 class TransactionResponse(TransactionBase):
     id: str

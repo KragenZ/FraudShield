@@ -16,6 +16,17 @@ from app.ws_manager import ws_manager
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
+def escape_like(text: str, escape_char: str = "\\") -> str:
+    """
+    Escapes special SQL LIKE/ILIKE wildcard characters (% and _) as well as the escape character itself.
+    Prevents wildcard injection and unintended full table scans caused by arbitrary wildcards (e.g. '%%%%').
+    """
+    return (
+        text.replace(escape_char, f"{escape_char}{escape_char}")
+        .replace("%", f"{escape_char}%")
+        .replace("_", f"{escape_char}_")
+    )
+
 @router.get("", response_model=TransactionListResponse)
 def get_transactions(
     page: int = Query(1, ge=1, description="Page number"),
@@ -30,14 +41,15 @@ def get_transactions(
     query = db.query(Transaction)
 
     if search:
-        search_filter = f"%{search}%"
+        escaped_search = escape_like(search.strip())
+        search_filter = f"%{escaped_search}%"
         query = query.filter(
             or_(
-                Transaction.id.ilike(search_filter),
-                Transaction.customer_id.ilike(search_filter),
-                Transaction.customer_name.ilike(search_filter),
-                Transaction.merchant.ilike(search_filter),
-                Transaction.location.ilike(search_filter)
+                Transaction.id.ilike(search_filter, escape="\\"),
+                Transaction.customer_id.ilike(search_filter, escape="\\"),
+                Transaction.customer_name.ilike(search_filter, escape="\\"),
+                Transaction.merchant.ilike(search_filter, escape="\\"),
+                Transaction.location.ilike(search_filter, escape="\\")
             )
         )
 
@@ -104,7 +116,8 @@ async def create_transaction(
 
     fraud_prob = round(risk_score / 100.0, 3)
     
-    tx_status = payload.status or "APPROVED"
+    t_type_val = payload.transaction_type.value if hasattr(payload.transaction_type, "value") else str(payload.transaction_type)
+    tx_status = payload.status.value if hasattr(payload.status, "value") else (payload.status or TransactionStatus.APPROVED.value)
     if risk_score >= 85:
         tx_status = TransactionStatus.BLOCKED.value if risk_score >= 92 else TransactionStatus.FLAGGED.value
     elif risk_score >= 50:
@@ -116,7 +129,7 @@ async def create_transaction(
         customer_name=payload.customer_name or "Verified Customer",
         amount=payload.amount,
         currency=payload.currency,
-        transaction_type=payload.transaction_type,
+        transaction_type=t_type_val,
         timestamp=datetime.utcnow(),
         fraud_probability=fraud_prob,
         risk_score=risk_score,
